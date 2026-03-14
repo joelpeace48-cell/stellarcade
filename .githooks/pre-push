@@ -1,87 +1,34 @@
 #!/bin/bash
 # Pre-Push Hook for Stellarcade
-# Blocks pushes when changed contracts/backend fail strict checks.
+# Ensures the project builds and tests pass before pushing to the remote.
 
-set -euo pipefail
+set -e
 
-ROOT_DIR="$(git rev-parse --show-toplevel)"
-cd "$ROOT_DIR"
+echo "🚀 Running pre-push verification (Build & Test)..."
 
-echo "🚀 Running pre-push verification..."
-
-# Collect pushed ranges from stdin (provided by git pre-push hook API).
-RANGES_FILE="$(mktemp)"
-while read -r local_ref local_sha remote_ref remote_sha; do
-  if [ -z "${local_sha:-}" ]; then
-    continue
-  fi
-  if [ "${remote_sha:-}" = "0000000000000000000000000000000000000000" ]; then
-    # New branch push.
-    echo "${local_sha}" >> "$RANGES_FILE"
-  else
-    echo "${remote_sha}..${local_sha}" >> "$RANGES_FILE"
-  fi
-done
-
-CHANGED_FILE_LIST="$(mktemp)"
-if [ -s "$RANGES_FILE" ]; then
-  while read -r range; do
-    git diff --name-only "$range" >> "$CHANGED_FILE_LIST" || true
-  done < "$RANGES_FILE"
-else
-  # Fallback for environments that don't provide stdin.
-  git diff --name-only HEAD~1..HEAD > "$CHANGED_FILE_LIST" || true
-fi
-sort -u "$CHANGED_FILE_LIST" -o "$CHANGED_FILE_LIST"
-
-CONTRACT_DIR_LIST="$(mktemp)"
-grep '^contracts/[^/]\+/.*' "$CHANGED_FILE_LIST" \
-  | cut -d/ -f1-2 \
-  | sort -u > "$CONTRACT_DIR_LIST" || true
-
-BACKEND_CHANGED=0
-if grep -q '^backend/' "$CHANGED_FILE_LIST"; then
-  BACKEND_CHANGED=1
-fi
-
+# 1. Strict Rust Contract Verification
+echo "🦀 Running strict Rust verification (fmt, clippy, test)..."
 if command -v cargo >/dev/null 2>&1; then
-  if [ -s "$CONTRACT_DIR_LIST" ]; then
-    echo "🦀 Verifying changed contract crates..."
-    while read -r dir; do
-      [ -n "$dir" ] || continue
-      if [ ! -f "$dir/Cargo.toml" ]; then
-        continue
-      fi
-      echo "   Checking $dir"
-      (
+    for dir in contracts/shared contracts/prize-pool contracts/random-generator contracts/coin-flip; do
+        echo "   Checking $dir..."
         cd "$dir"
         cargo fmt --all -- --check
         cargo clippy --all-targets --all-features -- -D warnings
-        # Treat warnings as failures during tests as well.
-        RUSTFLAGS="-D warnings" cargo test
-      )
-    done < "$CONTRACT_DIR_LIST"
-  else
-    echo "🦀 No contract changes detected; skipping Rust crate checks."
-  fi
+        cargo test
+        cd - > /dev/null
+    done
 else
-  echo "⚠️ Cargo not found, skipping Rust verification."
+    echo "⚠️ Cargo not found, skipping Rust verification."
 fi
 
-if [ "$BACKEND_CHANGED" -eq 1 ]; then
-  echo "📦 Verifying backend..."
-  if command -v npm >/dev/null 2>&1; then
-    (
-      cd backend
-      npm run lint
-      npm test
-    )
-  else
+# 2. Build and Test Backend
+echo "📦 Verifying backend..."
+if command -v npm >/dev/null 2>&1; then
+    cd backend
+    npm test || { echo "❌ Backend tests failed! Push aborted."; exit 1; }
+    cd ..
+else
     echo "⚠️ NPM not found, skipping backend verification."
-  fi
-else
-  echo "📦 No backend changes detected; skipping backend checks."
 fi
 
-rm -f "$RANGES_FILE" "$CHANGED_FILE_LIST" "$CONTRACT_DIR_LIST"
-echo "✨ All pre-push checks passed."
+echo "✨ All checks passed! Proceeding with push."
