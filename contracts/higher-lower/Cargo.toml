@@ -14,10 +14,3 @@ stellarcade-user-balance = { path = "../user-balance" }
 [lib]
 crate-type = ["cdylib"]
 
-[profile.release]
-opt-level = "z"
-overflow-checks = true
-debug = false
-panic = "abort"
-lto = true
-codegen-units = 1

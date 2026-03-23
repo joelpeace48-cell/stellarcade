@@ -15,10 +15,3 @@ stellarcade-random-generator = { path = "../random-generator" }
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[profile.release]
-opt-level = "z"
-overflow-checks = true
-debug = false
-panic = "abort"
-lto = true
-codegen-units = 1

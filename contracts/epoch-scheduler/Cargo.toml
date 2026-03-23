@@ -13,10 +13,3 @@ soroban-sdk = { version = "25.0.2", features = ["testutils"] }
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[profile.release]
-opt-level = "z"
-overflow-checks = true
-debug = false
-panic = "abort"
-lto = true
-codegen-units = 1
