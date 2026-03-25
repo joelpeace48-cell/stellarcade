@@ -43,11 +43,17 @@ const db = require('../../src/config/database');
 const { client: redisClient } = require('../../src/config/redis');
 const { server: horizonServer } = require('../../src/config/stellar');
 const { getDeepHealth } = require('../../src/controllers/health.controller');
+const healthService = require('../../src/services/health.service');
 
 // Create a standalone app for testing
 const app = express();
 app.use(express.json());
 app.get('/api/health/deep', getDeepHealth);
+
+const delayResolve = (ms, value) =>
+  new Promise((resolve) => {
+    setTimeout(() => resolve(value), ms);
+  });
 
 describe('GET /api/health/deep', () => {
   beforeEach(() => {
@@ -66,6 +72,27 @@ describe('GET /api/health/deep', () => {
       expect(res.body.dependencies.db.status).toBe('healthy');
       expect(res.body.dependencies.redis.status).toBe('healthy');
       expect(res.body.dependencies.stellar.status).toBe('healthy');
+      expect(res.body.dependencies.db.timeout_ms).toBe(5000);
+      expect(res.body.dependencies.redis.timeout_ms).toBe(5000);
+      expect(res.body.dependencies.stellar.timeout_ms).toBe(5000);
+      expect(res.body.dependencies.db.timed_out).toBe(false);
+      expect(res.headers['cache-control']).toBe('no-store');
+    });
+
+    test('reports dependency latencies when downstream checks are healthy', async () => {
+      db.raw.mockImplementation(() => delayResolve(20, {}));
+      redisClient.ping.mockImplementation(() => delayResolve(35, 'PONG'));
+      horizonServer.root.mockImplementation(() => delayResolve(50, {}));
+
+      const res = await request(app).get('/api/health/deep');
+
+      expect(res.status).toBe(200);
+      expect(res.body.dependencies.db.latency_ms).toBeGreaterThanOrEqual(15);
+      expect(res.body.dependencies.redis.latency_ms).toBeGreaterThanOrEqual(30);
+      expect(res.body.dependencies.stellar.latency_ms).toBeGreaterThanOrEqual(45);
+      expect(res.body.dependencies.db.timed_out).toBe(false);
+      expect(res.body.dependencies.redis.timed_out).toBe(false);
+      expect(res.body.dependencies.stellar.timed_out).toBe(false);
     });
   });
 
@@ -79,6 +106,9 @@ describe('GET /api/health/deep', () => {
       expect(res.body.status).toBe('degraded');
       expect(res.body.dependencies.db.status).toBe('unhealthy');
       expect(res.body.dependencies.db.error).toBe('Connection refused');
+      expect(res.body.dependencies.db.failure_type).toBe('dependency_error');
+      expect(res.body.dependencies.db.timed_out).toBe(false);
+      expect(res.body.dependencies.db.timeout_ms).toBe(5000);
       expect(res.body.dependencies.redis.status).toBe('healthy');
       expect(res.body.dependencies.stellar.status).toBe('healthy');
     });
@@ -93,6 +123,8 @@ describe('GET /api/health/deep', () => {
       expect(res.body.dependencies.db.status).toBe('healthy');
       expect(res.body.dependencies.redis.status).toBe('unhealthy');
       expect(res.body.dependencies.redis.error).toBe('Redis unavailable');
+      expect(res.body.dependencies.redis.failure_type).toBe('dependency_error');
+      expect(res.body.dependencies.redis.timed_out).toBe(false);
     });
 
     test('returns degraded status when stellar is down', async () => {
@@ -104,6 +136,8 @@ describe('GET /api/health/deep', () => {
       expect(res.body.status).toBe('degraded');
       expect(res.body.dependencies.stellar.status).toBe('unhealthy');
       expect(res.body.dependencies.stellar.error).toBe('Horizon unreachable');
+      expect(res.body.dependencies.stellar.failure_type).toBe('dependency_error');
+      expect(res.body.dependencies.stellar.timed_out).toBe(false);
     });
 
     test('returns unhealthy status when all dependencies are down', async () => {
@@ -123,17 +157,17 @@ describe('GET /api/health/deep', () => {
 
   describe('timeout handling', () => {
     test('marks a dependency as unhealthy when it exceeds timeout', async () => {
-      db.raw.mockImplementation(() => new Promise((resolve) => {
-        setTimeout(resolve, 10000);
-      }));
+      db.raw.mockImplementation(() => new Promise(() => {}));
 
-      // Use the health service directly with a short timeout
-      const healthService = require('../../src/services/health.service');
       const result = await healthService.deepHealthCheck({ timeoutMs: 50 });
 
       expect(result.status).not.toBe('healthy');
       expect(result.dependencies.db.status).toBe('unhealthy');
       expect(result.dependencies.db.error).toMatch(/timed out/);
+      expect(result.dependencies.db.failure_type).toBe('timeout');
+      expect(result.dependencies.db.timed_out).toBe(true);
+      expect(result.dependencies.db.timeout_ms).toBe(50);
+      expect(result.dependencies.db.latency_ms).toBeGreaterThanOrEqual(45);
     });
   });
 
@@ -149,26 +183,33 @@ describe('GET /api/health/deep', () => {
       expect(typeof res.body.dependencies).toBe('object');
     });
 
-    test('each dependency has status and latency_ms fields', async () => {
+    test('each dependency has status and latency fields for dashboards', async () => {
       const res = await request(app).get('/api/health/deep');
 
       for (const dep of ['db', 'redis', 'stellar']) {
         expect(res.body.dependencies[dep]).toHaveProperty('status');
         expect(res.body.dependencies[dep]).toHaveProperty('latency_ms');
+        expect(res.body.dependencies[dep]).toHaveProperty('timeout_ms');
+        expect(res.body.dependencies[dep]).toHaveProperty('timed_out');
         expect(typeof res.body.dependencies[dep].status).toBe('string');
         expect(typeof res.body.dependencies[dep].latency_ms).toBe('number');
+        expect(typeof res.body.dependencies[dep].timeout_ms).toBe('number');
+        expect(typeof res.body.dependencies[dep].timed_out).toBe('boolean');
       }
     });
 
-    test('unhealthy dependencies include error field', async () => {
+    test('unhealthy dependencies include stable failure diagnostics', async () => {
       db.raw.mockRejectedValue(new Error('Connection lost'));
 
       const res = await request(app).get('/api/health/deep');
 
       expect(res.body.dependencies.db).toHaveProperty('error');
+      expect(res.body.dependencies.db).toHaveProperty('failure_type');
       expect(typeof res.body.dependencies.db.error).toBe('string');
+      expect(typeof res.body.dependencies.db.failure_type).toBe('string');
       // Healthy dependencies should not have error field
       expect(res.body.dependencies.redis.error).toBeUndefined();
+      expect(res.body.dependencies.redis.failure_type).toBeUndefined();
     });
 
     test('status is one of healthy, degraded, or unhealthy', async () => {

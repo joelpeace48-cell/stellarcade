@@ -4,33 +4,59 @@ const { server: horizonServer } = require('../config/stellar');
 const logger = require('../utils/logger');
 
 const DEFAULT_TIMEOUT_MS = 5000;
+const HEALTH_TIMEOUT_ERROR_CODE = 'HEALTH_CHECK_TIMEOUT';
+const GENERIC_FAILURE_TYPE = 'dependency_error';
+
+const getElapsedMs = (startNs) => Number((process.hrtime.bigint() - startNs) / BigInt(1e6));
+
+const createTimeoutError = (name, timeoutMs) => {
+  const error = new Error(`${name} check timed out after ${timeoutMs}ms`);
+  error.code = HEALTH_TIMEOUT_ERROR_CODE;
+  return error;
+};
+
+const getFailureType = (error) =>
+  error && error.code === HEALTH_TIMEOUT_ERROR_CODE ? 'timeout' : GENERIC_FAILURE_TYPE;
 
 /**
- * Measure latency of an async check, returning status + latency + optional error.
+ * Measure latency of an async check, returning stable status and latency fields.
  *
  * @param {string} name - dependency label (for logging)
  * @param {Function} checkFn - async function that performs the check
  * @param {number} timeoutMs - max time before the check is considered failed
- * @returns {Promise<{status: string, latency_ms: number, error?: string}>}
+ * @returns {Promise<{status: string, latency_ms: number, timeout_ms: number, timed_out: boolean, failure_type?: string, error?: string}>}
  */
 const timedCheck = async (name, checkFn, timeoutMs = DEFAULT_TIMEOUT_MS) => {
-  const start = Date.now();
+  const startNs = process.hrtime.bigint();
+  let timeoutId;
+
   try {
     await Promise.race([
       checkFn(),
-      new Promise((_resolve, reject) =>
-        setTimeout(() => reject(new Error(`${name} check timed out after ${timeoutMs}ms`)),
-          timeoutMs)
-      ),
+      new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(createTimeoutError(name, timeoutMs)), timeoutMs);
+      }),
     ]);
-    return { status: 'healthy', latency_ms: Date.now() - start };
+
+    return {
+      status: 'healthy',
+      latency_ms: getElapsedMs(startNs),
+      timeout_ms: timeoutMs,
+      timed_out: false,
+    };
   } catch (err) {
     logger.warn(`Health check failed for ${name}: ${err.message}`);
+
     return {
       status: 'unhealthy',
-      latency_ms: Date.now() - start,
+      latency_ms: getElapsedMs(startNs),
+      timeout_ms: timeoutMs,
+      timed_out: err.code === HEALTH_TIMEOUT_ERROR_CODE,
+      failure_type: getFailureType(err),
       error: err.message,
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
 
@@ -38,30 +64,42 @@ const timedCheck = async (name, checkFn, timeoutMs = DEFAULT_TIMEOUT_MS) => {
  * Check PostgreSQL connectivity by running a trivial query.
  */
 const checkDatabase = (timeoutMs) => {
-  return timedCheck('db', async () => {
-    await db.raw('SELECT 1');
-  }, timeoutMs);
+  return timedCheck(
+    'db',
+    async () => {
+      await db.raw('SELECT 1');
+    },
+    timeoutMs
+  );
 };
 
 /**
  * Check Redis connectivity via PING.
  */
 const checkRedis = (timeoutMs) => {
-  return timedCheck('redis', async () => {
-    const reply = await redisClient.ping();
-    if (reply !== 'PONG') {
-      throw new Error(`Unexpected PING reply: ${reply}`);
-    }
-  }, timeoutMs);
+  return timedCheck(
+    'redis',
+    async () => {
+      const reply = await redisClient.ping();
+      if (reply !== 'PONG') {
+        throw new Error(`Unexpected PING reply: ${reply}`);
+      }
+    },
+    timeoutMs
+  );
 };
 
 /**
  * Check Stellar Horizon connectivity by fetching the root endpoint.
  */
 const checkStellar = (timeoutMs) => {
-  return timedCheck('stellar', async () => {
-    await horizonServer.root();
-  }, timeoutMs);
+  return timedCheck(
+    'stellar',
+    async () => {
+      await horizonServer.root();
+    },
+    timeoutMs
+  );
 };
 
 /**
