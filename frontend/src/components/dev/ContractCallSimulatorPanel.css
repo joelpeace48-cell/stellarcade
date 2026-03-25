@@ -1,0 +1,129 @@
+.contract-call-simulator {
+  position: fixed;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 9999;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  font-size: 0.8125rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  background: var(--cc-sim-bg, #0f1419);
+  color: var(--cc-sim-fg, #e6edf3);
+  border: 1px solid var(--cc-sim-border, #30363d);
+  border-radius: 6px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+}
+
+.contract-call-simulator__toggle {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border: none;
+  background: var(--cc-sim-toggle-bg, #161b22);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 6px 6px 0 0;
+}
+
+.contract-call-simulator__toggle:hover {
+  background: var(--cc-sim-toggle-hover, #21262d);
+}
+
+.contract-call-simulator__body {
+  padding: 0.65rem 0.75rem 0.85rem;
+  border-top: 1px solid var(--cc-sim-border, #30363d);
+}
+
+.contract-call-simulator__hint {
+  margin: 0 0 0.65rem;
+  opacity: 0.88;
+  line-height: 1.4;
+}
+
+.contract-call-simulator__hint code {
+  font-size: 0.9em;
+}
+
+.contract-call-simulator__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.55rem;
+}
+
+.contract-call-simulator__field span {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.contract-call-simulator__field input,
+.contract-call-simulator__field textarea,
+.contract-call-simulator__field select {
+  font: inherit;
+  padding: 0.35rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--cc-sim-border, #30363d);
+  background: var(--cc-sim-input-bg, #010409);
+  color: inherit;
+}
+
+.contract-call-simulator__field textarea {
+  resize: vertical;
+  min-height: 5rem;
+}
+
+.contract-call-simulator__mode {
+  margin: 0 0 0.55rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px dashed var(--cc-sim-border, #30363d);
+  border-radius: 4px;
+}
+
+.contract-call-simulator__mode legend {
+  padding: 0 0.25rem;
+  font-size: 0.75rem;
+}
+
+.contract-call-simulator__mode label {
+  display: block;
+  margin: 0.25rem 0;
+}
+
+.contract-call-simulator__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.contract-call-simulator__actions button {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.35rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid var(--cc-sim-border, #30363d);
+  background: var(--cc-sim-btn, #21262d);
+  color: inherit;
+}
+
+.contract-call-simulator__actions button:hover {
+  background: var(--cc-sim-btn-hover, #30363d);
+}
+
+.contract-call-simulator__status {
+  margin: 0;
+  padding: 0.35rem 0;
+  font-size: 0.78rem;
+  color: var(--cc-sim-accent, #79c0ff);
+}
+
+.contract-call-simulator__keys {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.contract-call-simulator__keys ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+}

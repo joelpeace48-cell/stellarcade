@@ -1,5 +1,13 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import GameLobby from './pages/GameLobby';
+
+const DevContractCallSimulatorPanel = import.meta.env.DEV
+  ? lazy(() =>
+      import('./components/dev/ContractCallSimulatorPanel').then((m) => ({
+        default: m.ContractCallSimulatorPanel,
+      })),
+    )
+  : undefined;
 
 const App: React.FC = () => {
   return (
@@ -28,6 +36,12 @@ const App: React.FC = () => {
           </div>
         </div>
       </footer>
+
+      {import.meta.env.DEV && DevContractCallSimulatorPanel ? (
+        <Suspense fallback={null}>
+          <DevContractCallSimulatorPanel />
+        </Suspense>
+      ) : null}
     </div>
   );
 };

@@ -20,6 +20,10 @@
  * - `@stellar/stellar-sdk` for XDR building, transaction assembly, and RPC.
  * - `WalletProvider` interface (implemented by Freighter adapter or test mock).
  * - `ContractAddressRegistry` for address lookups.
+ *
+ * ## Development
+ * In non-production builds, `simulate` / `invoke` return a registered mock when
+ * present (see `soroban-contract-dev` and the dev-only ContractCallSimulatorPanel).
  */
 
 import {
@@ -42,6 +46,7 @@ import type {
   PoolState,
   WalletProvider,
 } from "../types/contracts";
+import { devPeekContractSimResult } from "./soroban-contract-dev";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -342,6 +347,11 @@ export class SorobanContractClient {
     const { retries = DEFAULT_RETRIES } = opts;
     this.trackIdempotencyKey(opts.idempotencyKey);
 
+    const devSim = devPeekContractSimResult<T>(contractId, method);
+    if (devSim !== null) {
+      return devSim;
+    }
+
     const execute = async (): Promise<ContractResult<T>> => {
       try {
         const sourceAccount = await this.rpc.getAccount(
@@ -398,6 +408,11 @@ export class SorobanContractClient {
   ): Promise<ContractResult<T>> {
     const { retries = DEFAULT_RETRIES } = opts;
     this.trackIdempotencyKey(opts.idempotencyKey);
+
+    const devInv = devPeekContractSimResult<T>(contractId, method);
+    if (devInv !== null) {
+      return devInv;
+    }
 
     const execute = async (): Promise<ContractResult<T>> => {
       try {
