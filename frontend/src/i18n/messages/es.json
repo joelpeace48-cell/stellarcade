@@ -1,0 +1,18 @@
+{
+  "app.title": "StellarCade",
+  "nav.lobby": "Lobby",
+  "nav.games": "Juegos",
+  "nav.profile": "Perfil",
+  "footer.copyright": "© 2026 StellarCade. Todos los derechos reservados.",
+  "footer.terms": "Términos",
+  "footer.privacy": "Privacidad",
+  "lobby.title": "Lobby de Juegos",
+  "lobby.welcome": "Bienvenido a StellarCade",
+  "lobby.description": "Elige tu juego y empieza a jugar",
+  "common.loading": "Cargando...",
+  "common.error": "Error",
+  "common.retry": "Reintentar",
+  "common.cancel": "Cancelar",
+  "common.save": "Guardar",
+  "common.close": "Cerrar"
+}
