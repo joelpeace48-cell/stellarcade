@@ -89,8 +89,6 @@ pub fn get_request(env: Env, request_id: BytesN<32>) -> Option<OracleRequest>
 `Option<OracleRequest>`
 
 ### `last_price_freshness`
-Return the last known payload together with the ledger sequence it was updated at, the current ledger sequence, the computed age, and stale-read guard metadata. Missing price state resolves deterministically with `has_price = false`, an empty payload, and `is_stale = true`.
-
 ```rust
 pub fn last_price_freshness(env: Env, feed_id: BytesN<32>) -> PriceFreshness
 ```
@@ -105,6 +103,4 @@ pub fn last_price_freshness(env: Env, feed_id: BytesN<32>) -> PriceFreshness
 #### Return Type
 
 `PriceFreshness`
-
-Consumers should gate price-dependent flows on `has_price` and `is_stale`. The accessor is read-only and side-effect free, while the existing `latest` accessor remains available for payload-only reads.
 
