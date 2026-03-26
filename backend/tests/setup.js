@@ -15,7 +15,7 @@ const knex = require('knex')({
 });
 
 // Replace the database export with our test instance
-const databaseConfig = require('../src/config/database');
+const _databaseConfig = require('../src/config/database');
 require.cache[require.resolve('../src/config/database')].exports = knex;
 
 module.exports = async () => {
