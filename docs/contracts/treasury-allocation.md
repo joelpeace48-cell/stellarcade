@@ -120,6 +120,25 @@ pub fn request_state(env: Env, request_id: u32) -> Result<RequestInfo, Error>
 
 `Result<RequestInfo, Error>`
 
+### `preview_allocation`
+Preview allocation outcome without modifying state Returns detailed preview showing if request would exceed budget and approval likelihood
+
+```rust
+pub fn preview_allocation(env: Env, bucket_id: Symbol, amount: i128) -> Result<AllocationPreview, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `bucket_id` | `Symbol` |
+| `amount` | `i128` |
+
+#### Return Type
+
+`Result<AllocationPreview, Error>`
+
 ### `allocate`
 ```rust
 pub fn allocate(_env: Env, _to_contract: Address, _amount: i128, _purpose: Symbol)

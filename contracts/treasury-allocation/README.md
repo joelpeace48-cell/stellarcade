@@ -15,6 +15,7 @@ The Treasury Allocation Contract is a budgeting and access-control layer that si
 | `reject_allocation(request_id)` | admin | Reject a pending request without touching the budget. Emits `AllocationRejected`. |
 | `budget_state(bucket_id) → BudgetInfo` | — | Read-only. Returns `{ limit, allocated, period }`. Returns zeroed struct for unknown buckets. |
 | `request_state(request_id) → RequestInfo` | — | Read-only. Returns request details or `RequestNotFound`. |
+| `preview_allocation(bucket_id, amount) → AllocationPreview` | — | Read-only. Returns allocation outcome preview without modifying state. |
 
 ---
 
@@ -39,7 +40,71 @@ The Treasury Allocation Contract is a budgeting and access-control layer that si
 | `DataKey::Budget(Symbol)` | `BudgetInfo` | `persistent` | Per-bucket spending limits and running total |
 | `DataKey::AllocationRequest(u32)` | `RequestInfo` | `persistent` | Full lifecycle record per request |
 
+### Data Structures
+
+#### BudgetInfo
+| Field | Type | Description |
+|---|---|---|
+| `limit` | `i128` | Maximum allocation for the bucket period |
+| `allocated` | `i128` | Current total allocated from budget |
+| `period` | `u64` | Budget period (caller-defined semantics) |
+
+#### RequestInfo
+| Field | Type | Description |
+|---|---|---|
+| `bucket_id` | `Symbol` | Target budget bucket |
+| `requester` | `Address` | Address requesting allocation |
+| `amount` | `i128` | Requested allocation amount |
+| `reason` | `Symbol` | Purpose/reason for request |
+| `status` | `RequestStatus` | `Pending`, `Approved`, or `Rejected` |
+
+#### AllocationPreview
+| Field | Type | Description |
+|---|---|---|
+| `bucket_id` | `Symbol` | Target budget bucket |
+| `current_limit` | `i128` | Current budget limit |
+| `current_allocated` | `i128` | Current allocated amount |
+| `remaining_budget` | `i128` | Available budget remaining |
+| `requested_amount` | `i128` | Amount being previewed |
+| `would_exceed_budget` | `bool` | True if request exceeds remaining budget |
+| `excess_amount` | `i128` | Amount over budget (0 if within budget) |
+| `approval_likely` | `bool` | Likelihood of approval based on constraints |
+
 All `persistent` entries are TTL-bumped to `518_400` ledgers on every write.
+
+---
+
+## Allocation Preview
+
+The `preview_allocation` method provides a read-only preview of allocation outcomes without modifying contract state. This enables UI/UX improvements and better user experience by showing approval likelihood before users submit actual requests.
+
+### Preview Behavior
+
+- **Stateless**: Does not modify any contract storage
+- **Deterministic**: Same inputs always produce same outputs
+- **Real-time**: Reflects current budget state including pending allocations
+- **Safe**: Can be called frequently without gas costs for state changes
+
+### Approval Logic
+
+The `approval_likely` field follows these rules:
+- `false` if no budget exists for the bucket
+- `false` if requested amount exceeds remaining budget
+- `true` if within budget constraints and amount is reasonable
+
+### Use Cases
+
+```rust
+// Check if request is likely to be approved
+let preview = contract.preview_allocation(&symbol_short!("ops"), &500);
+if preview.approval_likely {
+    // Submit actual request
+    let request_id = contract.request_allocation(&user, &symbol_short!("ops"), &500, &symbol_short!("server"));
+} else {
+    // Show user why it would be rejected
+    display_error(format!("Request exceeds budget by {}", preview.excess_amount));
+}
+```
 
 ---
 

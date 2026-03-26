@@ -57,6 +57,19 @@ pub struct RequestInfo {
     pub status: RequestStatus,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllocationPreview {
+    pub bucket_id: Symbol,
+    pub current_limit: i128,
+    pub current_allocated: i128,
+    pub remaining_budget: i128,
+    pub requested_amount: i128,
+    pub would_exceed_budget: bool,
+    pub excess_amount: i128,
+    pub approval_likely: bool,
+}
+
 #[contractevent]
 pub struct BudgetCreated {
     #[topic]
@@ -294,6 +307,51 @@ impl TreasuryAllocation {
         let key = DataKey::AllocationRequest(request_id);
         env.storage().persistent().get(&key).ok_or(Error::RequestNotFound)
     }
+
+    /// Preview allocation outcome without modifying state
+    /// Returns detailed preview showing if request would exceed budget and approval likelihood
+    pub fn preview_allocation(
+        env: Env,
+        bucket_id: Symbol,
+        amount: i128,
+    ) -> Result<AllocationPreview, Error> {
+        if !env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::NotInitialized);
+        }
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        let budget_key = DataKey::Budget(bucket_id.clone());
+        let budget: BudgetInfo = env.storage().persistent().get(&budget_key).unwrap_or(BudgetInfo {
+            limit: 0,
+            allocated: 0,
+            period: 0,
+        });
+
+        let remaining_budget = budget.limit.saturating_sub(budget.allocated);
+        let would_exceed_budget = budget.limit > 0 && remaining_budget < amount;
+        let excess_amount = if would_exceed_budget {
+            amount.saturating_sub(remaining_budget)
+        } else {
+            0
+        };
+        
+        // Approval likelihood based on budget constraints and amount reasonableness
+        let approval_likely = !would_exceed_budget && amount <= budget.limit;
+
+        Ok(AllocationPreview {
+            bucket_id,
+            current_limit: budget.limit,
+            current_allocated: budget.allocated,
+            remaining_budget,
+            requested_amount: amount,
+            would_exceed_budget,
+            excess_amount,
+            approval_likely,
+        })
+    }
 }
 
 fn require_admin_as_invoker(env: &Env) -> Result<(), Error> {
@@ -447,5 +505,128 @@ mod test {
 
         let res2 = client.try_reject_allocation(&req_id);
         assert!(res2.is_err());
+    }
+
+    #[test]
+    fn test_preview_allocation_within_budget() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        client.create_budget(&symbol_short!("ops"), &1000, &30);
+        
+        let preview = client.preview_allocation(&symbol_short!("ops"), &500);
+        
+        assert_eq!(preview.bucket_id, symbol_short!("ops"));
+        assert_eq!(preview.current_limit, 1000);
+        assert_eq!(preview.current_allocated, 0);
+        assert_eq!(preview.remaining_budget, 1000);
+        assert_eq!(preview.requested_amount, 500);
+        assert!(!preview.would_exceed_budget);
+        assert_eq!(preview.excess_amount, 0);
+        assert!(preview.approval_likely);
+    }
+
+    #[test]
+    fn test_preview_allocation_exceeds_budget() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        client.create_budget(&symbol_short!("ops"), &1000, &30);
+        
+        let preview = client.preview_allocation(&symbol_short!("ops"), &1500);
+        
+        assert_eq!(preview.bucket_id, symbol_short!("ops"));
+        assert_eq!(preview.current_limit, 1000);
+        assert_eq!(preview.current_allocated, 0);
+        assert_eq!(preview.remaining_budget, 1000);
+        assert_eq!(preview.requested_amount, 1500);
+        assert!(preview.would_exceed_budget);
+        assert_eq!(preview.excess_amount, 500);
+        assert!(!preview.approval_likely);
+    }
+
+    #[test]
+    fn test_preview_allocation_with_existing_allocations() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        client.create_budget(&symbol_short!("ops"), &1000, &30);
+        
+        // Approve one allocation first
+        let requester = Address::generate(&env);
+        let req_id = client.request_allocation(&requester, &symbol_short!("ops"), &300, &symbol_short!("server"));
+        client.approve_allocation(&req_id);
+        
+        // Preview another allocation
+        let preview = client.preview_allocation(&symbol_short!("ops"), &400);
+        
+        assert_eq!(preview.current_limit, 1000);
+        assert_eq!(preview.current_allocated, 300);
+        assert_eq!(preview.remaining_budget, 700);
+        assert_eq!(preview.requested_amount, 400);
+        assert!(!preview.would_exceed_budget);
+        assert_eq!(preview.excess_amount, 0);
+        assert!(preview.approval_likely);
+    }
+
+    #[test]
+    fn test_preview_allocation_no_budget_exists() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let preview = client.preview_allocation(&symbol_short!("none"), &500);
+        
+        assert_eq!(preview.bucket_id, symbol_short!("none"));
+        assert_eq!(preview.current_limit, 0);
+        assert_eq!(preview.current_allocated, 0);
+        assert_eq!(preview.remaining_budget, 0);
+        assert_eq!(preview.requested_amount, 500);
+        assert!(!preview.would_exceed_budget); // No budget limit to exceed
+        assert_eq!(preview.excess_amount, 0);
+        assert!(!preview.approval_likely); // No budget exists
+    }
+
+    #[test]
+    fn test_preview_allocation_invalid_amount() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let result = client.try_preview_allocation(&symbol_short!("ops"), &0);
+        assert!(result.is_err());
+
+        let result = client.try_preview_allocation(&symbol_short!("ops"), &-100);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_preview_allocation_uninitialized_contract() {
+        let env = Env::default();
+        let contract_id = env.register(TreasuryAllocation, ());
+        let client = TreasuryAllocationClient::new(&env, &contract_id);
+        
+        let result = client.try_preview_allocation(&symbol_short!("ops"), &500);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_preview_allocation_exact_budget_limit() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        client.create_budget(&symbol_short!("ops"), &1000, &30);
+        
+        let preview = client.preview_allocation(&symbol_short!("ops"), &1000);
+        
+        assert_eq!(preview.remaining_budget, 1000);
+        assert_eq!(preview.requested_amount, 1000);
+        assert!(!preview.would_exceed_budget);
+        assert_eq!(preview.excess_amount, 0);
+        assert!(preview.approval_likely);
     }
 }
