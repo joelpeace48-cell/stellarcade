@@ -31,6 +31,10 @@ export interface PaginatedListControllerProps {
     className?: string;
     /** Data test ID for automation */
     testId?: string;
+    /** Optional user-visible error message for fetch failures */
+    errorMessage?: string | null;
+    /** Optional retry callback when an error is shown */
+    onRetry?: () => void;
 }
 
 /**
@@ -54,6 +58,8 @@ export const PaginatedListController: React.FC<PaginatedListControllerProps> = (
     pageSizeOptions = [10, 25, 50, 100],
     className = '',
     testId = 'paginated-list-controller',
+    errorMessage = null,
+    onRetry,
 }) => {
     const isFirstPage = page <= 1;
     const isLastPage = page >= totalPages;
@@ -90,7 +96,10 @@ export const PaginatedListController: React.FC<PaginatedListControllerProps> = (
         return pages.filter((v, i, a) => v !== '...' || a[i - 1] !== '...');
     };
 
-    if (total === 0 && !isLoading) {
+    const hasError = Boolean(errorMessage);
+    const shouldShowEmpty = total === 0 && !isLoading && !hasError;
+
+    if (shouldShowEmpty) {
         return (
             <div className={`paginated-list-empty ${className}`} data-testid={testId}>
                 <span className="pagination-info">No items to display</span>
@@ -105,6 +114,21 @@ export const PaginatedListController: React.FC<PaginatedListControllerProps> = (
             role="navigation"
             aria-label="Pagination Navigation"
         >
+            {hasError && (
+                <div className="pagination-error" role="alert" data-testid={`${testId}-error`}>
+                    <span>{errorMessage}</span>
+                    {onRetry && (
+                        <button
+                            type="button"
+                            className="pagination-btn pagination-retry-btn"
+                            onClick={onRetry}
+                            data-testid={`${testId}-retry`}
+                        >
+                            Retry
+                        </button>
+                    )}
+                </div>
+            )}
             <div className="pagination-info-section">
                 <span className="pagination-info">
                     Showing <strong>{startItem}</strong> - <strong>{endItem}</strong> of <strong>{total}</strong>

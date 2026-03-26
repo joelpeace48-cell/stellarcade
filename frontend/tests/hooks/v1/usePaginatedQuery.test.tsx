@@ -665,6 +665,105 @@ describe("usePaginatedQuery Hook", () => {
     });
   });
 
+  describe("Transition handoff scenarios", () => {
+    it("transitions from initial loading to empty success", async () => {
+      const executor = async () => ({
+        success: true as const,
+        data: createResult([], 0, 1, 10),
+      });
+
+      const { result } = renderHook(() =>
+        usePaginatedQuery({
+          initialState: defaultState,
+          queryExecutor: executor,
+        })
+      );
+
+      expect(result.current.loading).toBe("loading");
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe("idle");
+        expect(result.current.data?.items).toEqual([]);
+        expect(result.current.error).toBeNull();
+      });
+    });
+
+    it("retains previous successful data when next page fails", async () => {
+      const executor = vi.fn(async (state: PaginationState) => {
+        if (state.page === 1) {
+          return {
+            success: true as const,
+            data: createResult([{ id: "1", name: "Item 1" }], 20, 1, 10),
+          };
+        }
+        return {
+          success: false as const,
+          error: { message: "Page load failed", code: "PAGE_FAIL" },
+        };
+      });
+
+      const { result } = renderHook(() =>
+        usePaginatedQuery({
+          initialState: defaultState,
+          queryExecutor: executor,
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.data?.items[0]?.id).toBe("1");
+      });
+
+      act(() => {
+        result.current.setPage(2);
+      });
+
+      await waitFor(() => {
+        expect(result.current.state.page).toBe(2);
+        expect(result.current.error?.code).toBe("PAGE_FAIL");
+      });
+
+      expect(result.current.data?.items[0]?.id).toBe("1");
+    });
+
+    it("recovers after retry-driven refetch", async () => {
+      let shouldFail = true;
+      const executor = vi.fn(async () => {
+        if (shouldFail) {
+          return {
+            success: false as const,
+            error: { message: "Temporary failure", code: "TEMP_FAIL" },
+          };
+        }
+        return {
+          success: true as const,
+          data: createResult([{ id: "2", name: "Recovered item" }], 1, 1, 10),
+        };
+      });
+
+      const { result } = renderHook(() =>
+        usePaginatedQuery({
+          initialState: defaultState,
+          queryExecutor: executor,
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isError).toBe(true);
+      });
+
+      shouldFail = false;
+      await act(async () => {
+        await result.current.refetch();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+        expect(result.current.error).toBeNull();
+        expect(result.current.data?.items[0]?.name).toBe("Recovered item");
+      });
+    });
+  });
+
   // ── Persistence Tests ──────────────────────────────────────────────────────
 
   describe("State Persistence", () => {

@@ -1,5 +1,6 @@
 .paginated-list-controller {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     padding: 1rem;
@@ -9,6 +10,25 @@
     user-select: none;
     border: 1px solid var(--v1-border-subtle, rgba(255, 255, 255, 0.1));
     transition: all 0.2s ease-in-out;
+}
+
+.pagination-error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fecaca;
+    font-size: 0.85rem;
+}
+
+.pagination-retry-btn {
+    margin-left: auto;
+    height: 28px;
+    min-width: 60px;
 }
 
 .paginated-list-controller.is-loading {
