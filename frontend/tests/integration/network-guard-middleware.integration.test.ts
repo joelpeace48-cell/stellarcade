@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   clearNetworkGuardOperationLocks,
+  getQueuedNetworkActionsCount,
+  resumeQueuedNetworkActions,
   withNetworkGuard,
 } from "../../src/services/network-guard-middleware";
 
@@ -48,5 +50,36 @@ describe("network guard middleware integration", () => {
 
     expect(sideEffect).toHaveBeenCalledTimes(1);
     clearNetworkGuardOperationLocks();
+  });
+
+  it("queues and resumes idempotent actions after network recovery", async () => {
+    let network = "PUBLIC";
+    const sideEffect = vi.fn(async () => "resumed-ok");
+
+    const input = {
+      walletConnected: true,
+      provider: {
+        async getNetwork() {
+          return { network };
+        },
+      },
+      supportedNetworks: ["TESTNET"],
+      isIdempotent: true,
+      resumeOnNetworkRecovery: true,
+    };
+
+    const resumePromise = withNetworkGuard(input, sideEffect);
+
+    // Allow promise ticks to reach the queueing logic
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(getQueuedNetworkActionsCount()).toBe(1);
+    expect(sideEffect).not.toHaveBeenCalled();
+
+    network = "TESTNET";
+    await resumeQueuedNetworkActions();
+
+    await expect(resumePromise).resolves.toBe("resumed-ok");
+    expect(sideEffect).toHaveBeenCalledTimes(1);
   });
 });

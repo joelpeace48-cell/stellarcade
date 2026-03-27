@@ -85,6 +85,19 @@ const logger = require('../utils/logger');
 const { server, passphrase } = require('../config/stellar');
 const Outbox = require('../models/Outbox.model');
 
+class NetworkMismatchError extends Error {
+  constructor({ expectedNetwork, receivedNetwork }) {
+    super(
+      `Wallet network mismatch: expected ${expectedNetwork}, received ${receivedNetwork}. Please switch your wallet network and try again.`
+    );
+    this.name = 'NetworkMismatchError';
+    this.code = 'NETWORK_MISMATCH';
+    this.statusCode = 400;
+    this.expectedNetwork = expectedNetwork;
+    this.receivedNetwork = receivedNetwork;
+  }
+}
+
 /**
  * Error codes returned in the service result for structured error handling by callers.
  */
@@ -288,10 +301,28 @@ const submitTransactionAsync = async (transactionXDR) => {
   }
 };
 
+const normalizeNetworkName = (networkName) => {
+  return String(networkName || '').trim().toLowerCase();
+};
+
+const assertWalletNetwork = ({ walletNetwork, expectedNetwork }) => {
+  const normalizedWalletNetwork = normalizeNetworkName(walletNetwork);
+  const normalizedExpectedNetwork = normalizeNetworkName(expectedNetwork);
+
+  if (!normalizedWalletNetwork || normalizedWalletNetwork !== normalizedExpectedNetwork) {
+    throw new NetworkMismatchError({
+      expectedNetwork: normalizedExpectedNetwork || 'unknown',
+      receivedNetwork: normalizedWalletNetwork || 'unknown',
+    });
+  }
+};
+
 module.exports = {
   submitTransaction,
   submitTransactionAsync,
+  assertWalletNetwork,
   STELLAR_ERRORS,
+  NetworkMismatchError,
   // exported for testing only
   _parseHorizonError: parseHorizonError,
 };

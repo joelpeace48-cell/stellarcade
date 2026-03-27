@@ -18,6 +18,14 @@ export interface WalletState {
 // Feature flags / app flags
 export type AppFlags = Record<string, boolean>;
 
+export interface PendingTransactionSnapshot {
+  operation: string;
+  txHash?: string;
+  phase: string;
+  startedAt: number;
+  updatedAt: number;
+}
+
 // Complete global state
 export interface GlobalState {
   auth: AuthState;
@@ -25,6 +33,8 @@ export interface GlobalState {
   flags: AppFlags;
   /** Transient optimistic UI patches for game actions (not persisted). */
   optimisticPatches: Record<string, unknown>;
+  /** Bounded snapshot of pending transaction UI state. */
+  pendingTransaction?: PendingTransactionSnapshot | null;
 }
 
 // Actions
@@ -38,6 +48,8 @@ export type GlobalAction =
   | { type: "OPTIMISTIC_PATCH"; payload: { key: string; value: unknown } }
   | { type: "OPTIMISTIC_REVERT"; payload: { key: string } }
   | { type: "OPTIMISTIC_CLEAR" }
+  | { type: "PENDING_TX_SET"; payload: { snapshot: PendingTransactionSnapshot } }
+  | { type: "PENDING_TX_CLEAR" }
   | { type: "RESET_ALL" };
 
 // Domain errors

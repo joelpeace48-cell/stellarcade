@@ -1,9 +1,11 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type {
     AsyncActionResult,
     AsyncActionOptions,
 } from "../../types/v1/async";
 import {
+    canCommitAsyncAction,
+    cancelAsyncAction,
     validateAsyncAction,
     createInitialState,
     transitionState
@@ -39,6 +41,7 @@ export function useAsyncAction<T, E = Error, Args extends any[] = any[]>(
 ): AsyncActionResult<T, E> & {
     run: (...args: Args) => Promise<T | undefined>;
     reset: () => void;
+    cancel: () => void;
 } {
     const [state, setState] = useState<AsyncActionResult<T, E>>(() => createInitialState<T, E>());
 
@@ -46,13 +49,30 @@ export function useAsyncAction<T, E = Error, Args extends any[] = any[]>(
 
     // Ref to track the latest execution ID to prevent race conditions from outdated promises
     const lastExecutionId = useRef(0);
+    const isMountedRef = useRef(true);
 
     // Ref for steady access to options without triggering re-renders or dependency changes
     const optionsRef = useRef(options);
     optionsRef.current = options;
 
+    useEffect(() => {
+        return () => {
+            isMountedRef.current = false;
+            lastExecutionId.current = cancelAsyncAction(lastExecutionId.current);
+        };
+    }, []);
+
     const reset = useCallback(() => {
+        lastExecutionId.current = cancelAsyncAction(lastExecutionId.current);
         setState(createInitialState<T, E>());
+    }, []);
+
+    const cancel = useCallback(() => {
+        lastExecutionId.current = cancelAsyncAction(lastExecutionId.current);
+
+        if (isMountedRef.current) {
+            setState(createInitialState<T, E>());
+        }
     }, []);
 
     const run = useCallback(async (...args: Args): Promise<T | undefined> => {
@@ -73,7 +93,7 @@ export function useAsyncAction<T, E = Error, Args extends any[] = any[]>(
             const result = await action(...args);
 
             // Only update state if this is still the latest execution
-            if (executionId === lastExecutionId.current) {
+            if (canCommitAsyncAction(executionId, lastExecutionId.current, isMountedRef.current)) {
                 setState(transitionState<T, E>("success", result));
 
                 if (optionsRef.current.onSuccess) {
@@ -83,7 +103,7 @@ export function useAsyncAction<T, E = Error, Args extends any[] = any[]>(
             return result;
         } catch (err) {
             // Only update state if this is still the latest execution
-            if (executionId === lastExecutionId.current) {
+            if (canCommitAsyncAction(executionId, lastExecutionId.current, isMountedRef.current)) {
                 const typedError = err as E;
                 setState(transitionState<T, E>("error", null, typedError));
 
@@ -100,5 +120,6 @@ export function useAsyncAction<T, E = Error, Args extends any[] = any[]>(
         ...state,
         run,
         reset,
+        cancel,
     };
 }

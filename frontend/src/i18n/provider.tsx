@@ -2,18 +2,25 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 export type Locale = 'en' | 'es' | 'fr' | 'de' | 'ja';
 
+export const DEFAULT_LOCALE: Locale = 'en';
+export const DEFAULT_INTL_LOCALE = 'en-US';
+export const LOCALE_TO_INTL: Record<Locale, string> = {
+  en: 'en-US',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  de: 'de-DE',
+  ja: 'ja-JP',
+};
+
 interface I18nContextType {
   locale: Locale;
+  intlLocale: string;
   setLocale: (locale: Locale) => void;
   t: (key: string, fallback?: string) => string;
 }
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
-// Default locale fallback
-const DEFAULT_LOCALE: Locale = 'en';
-
-// Message registry
 const messages: Record<Locale, Record<string, string>> = {
   en: {},
   es: {},
@@ -22,79 +29,102 @@ const messages: Record<Locale, Record<string, string>> = {
   ja: {},
 };
 
-// Load messages dynamically
 const loadMessages = async (locale: Locale): Promise<Record<string, string>> => {
   try {
     const module = await import(`./messages/${locale}.json`);
     return module.default;
-  } catch (error) {
+  } catch {
     console.warn(`Failed to load messages for locale: ${locale}`);
     return {};
   }
 };
+
+export function isSupportedLocale(value: unknown): value is Locale {
+  return (
+    typeof value === 'string' &&
+    Object.prototype.hasOwnProperty.call(LOCALE_TO_INTL, value)
+  );
+}
+
+export function resolveIntlLocale(locale?: string | null): string {
+  if (!locale) {
+    return DEFAULT_INTL_LOCALE;
+  }
+
+  if (isSupportedLocale(locale)) {
+    return LOCALE_TO_INTL[locale];
+  }
+
+  try {
+    const [canonical] = Intl.getCanonicalLocales(locale);
+    return canonical ?? DEFAULT_INTL_LOCALE;
+  } catch {
+    return DEFAULT_INTL_LOCALE;
+  }
+}
 
 interface I18nProviderProps {
   children: ReactNode;
   defaultLocale?: Locale;
 }
 
-export const I18nProvider: React.FC<I18nProviderProps> = ({ 
-  children, 
-  defaultLocale = DEFAULT_LOCALE 
+export const I18nProvider: React.FC<I18nProviderProps> = ({
+  children,
+  defaultLocale = DEFAULT_LOCALE,
 }) => {
   const [locale, setLocale] = useState<Locale>(defaultLocale);
   const [messageRegistry, setMessageRegistry] = useState(messages);
 
   const changeLocale = async (newLocale: Locale) => {
     if (newLocale === locale) return;
-    
-    // Load messages for new locale if not already loaded
-    if (!messageRegistry[newLocale] || Object.keys(messageRegistry[newLocale]).length === 0) {
+
+    if (
+      !messageRegistry[newLocale] ||
+      Object.keys(messageRegistry[newLocale]).length === 0
+    ) {
       const newMessages = await loadMessages(newLocale);
-      setMessageRegistry(prev => ({
+      setMessageRegistry((prev) => ({
         ...prev,
         [newLocale]: newMessages,
       }));
     }
-    
+
     setLocale(newLocale);
   };
 
   const t = (key: string, fallback?: string): string => {
     const localeMessages = messageRegistry[locale];
     const value = localeMessages[key];
-    
+
     if (value !== undefined) {
       return value;
     }
-    
-    // Fallback to default locale
+
     const defaultMessages = messageRegistry[DEFAULT_LOCALE];
     const defaultValue = defaultMessages[key];
-    
+
     if (defaultValue !== undefined) {
       return defaultValue;
     }
-    
-    // Return fallback or key if no translation found
+
     return fallback || key;
   };
 
-  // Load default locale messages on mount
   React.useEffect(() => {
     const initializeMessages = async () => {
       const defaultMessages = await loadMessages(defaultLocale);
-      setMessageRegistry(prev => ({
+      setMessageRegistry((prev) => ({
         ...prev,
         [defaultLocale]: defaultMessages,
       }));
     };
-    
-    initializeMessages();
+
+    void initializeMessages();
   }, [defaultLocale]);
 
   const value: I18nContextType = {
     locale,
+    intlLocale: resolveIntlLocale(locale),
     setLocale: changeLocale,
     t,
   };

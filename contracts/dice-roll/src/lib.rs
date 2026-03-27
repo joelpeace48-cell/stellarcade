@@ -22,8 +22,8 @@
 #![allow(unexpected_cfgs)]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient, Address,
-    Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient,
+    Address, Env,
 };
 
 use stellarcade_random_generator::RandomGeneratorClient;
@@ -51,18 +51,19 @@ const PAYOUT_MULTIPLIER: i128 = 6;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized  = 1,
-    NotInitialized      = 2,
-    NotAuthorized       = 3,
-    InvalidAmount       = 4,
-    InvalidPrediction   = 5,
-    GameAlreadyExists   = 6,
-    GameNotFound        = 7,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    NotAuthorized = 3,
+    InvalidAmount = 4,
+    InvalidPrediction = 5,
+    GameAlreadyExists = 6,
+    GameNotFound = 7,
     GameAlreadyResolved = 8,
-    RngNotFulfilled     = 9,
-    WagerTooLow         = 10,
-    WagerTooHigh        = 11,
-    Overflow            = 12,
+    RngNotFulfilled = 9,
+    WagerTooLow = 10,
+    WagerTooHigh = 11,
+    Overflow = 12,
+    InvalidWagerRange = 13,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,13 @@ pub struct Roll {
     pub won: bool,
     pub result: u32,
     pub payout: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WagerLimits {
+    pub min_wager: i128,
+    pub max_wager: i128,
 }
 
 // ---------------------------------------------------------------------------
@@ -143,13 +151,18 @@ impl DiceRoll {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+        validate_wager_range(min_wager, max_wager)?;
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
-        env.storage().instance().set(&DataKey::RngContract, &rng_contract);
+        env.storage()
+            .instance()
+            .set(&DataKey::RngContract, &rng_contract);
         env.storage().instance().set(&DataKey::MinWager, &min_wager);
         env.storage().instance().set(&DataKey::MaxWager, &max_wager);
-        env.storage().instance().set(&DataKey::HouseEdgeBps, &house_edge_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::HouseEdgeBps, &house_edge_bps);
         Ok(())
     }
 
@@ -190,11 +203,7 @@ impl DiceRoll {
 
         // Transfer tokens from player to this contract
         let token = get_token(&env);
-        TokenClient::new(&env, &token).transfer(
-            &player,
-            env.current_contract_address(),
-            &wager,
-        );
+        TokenClient::new(&env, &token).transfer(&player, env.current_contract_address(), &wager);
 
         // Request randomness: max=6 gives result 0–5
         let rng_addr: Address = env.storage().instance().get(&DataKey::RngContract).unwrap();
@@ -215,11 +224,19 @@ impl DiceRoll {
             payout: 0,
         };
         env.storage().persistent().set(&game_key, &roll);
-        env.storage()
-            .persistent()
-            .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &game_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
-        RollPlaced { game_id, player, prediction, wager }.publish(&env);
+        RollPlaced {
+            game_id,
+            player,
+            prediction,
+            wager,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -254,8 +271,11 @@ impl DiceRoll {
 
         let mut payout = 0i128;
         if won {
-            let house_edge_bps: i128 =
-                env.storage().instance().get(&DataKey::HouseEdgeBps).unwrap();
+            let house_edge_bps: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::HouseEdgeBps)
+                .unwrap();
             // Winnings = (PAYOUT_MULTIPLIER - 1) * wager (the profit portion)
             // Fee = winnings * house_edge_bps / 10000
             // Payout = PAYOUT_MULTIPLIER * wager - fee
@@ -279,9 +299,11 @@ impl DiceRoll {
             roll.payout = payout;
             roll.resolved = true;
             env.storage().persistent().set(&game_key, &roll);
-            env.storage()
-                .persistent()
-                .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &game_key,
+                PERSISTENT_BUMP_LEDGERS,
+                PERSISTENT_BUMP_LEDGERS,
+            );
 
             let token = get_token(&env);
             TokenClient::new(&env, &token).transfer(
@@ -295,9 +317,11 @@ impl DiceRoll {
             roll.result = die_face;
             roll.payout = 0;
             env.storage().persistent().set(&game_key, &roll);
-            env.storage()
-                .persistent()
-                .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &game_key,
+                PERSISTENT_BUMP_LEDGERS,
+                PERSISTENT_BUMP_LEDGERS,
+            );
         }
 
         RollResolved {
@@ -319,6 +343,32 @@ impl DiceRoll {
             .get(&DataKey::Game(game_id))
             .ok_or(Error::GameNotFound)
     }
+
+    /// Admin-only update for the on-chain min and max wager settings.
+    pub fn set_wager_limits(
+        env: Env,
+        admin: Address,
+        min_wager: i128,
+        max_wager: i128,
+    ) -> Result<(), Error> {
+        require_initialized(&env)?;
+        require_admin(&env, &admin)?;
+        validate_wager_range(min_wager, max_wager)?;
+
+        env.storage().instance().set(&DataKey::MinWager, &min_wager);
+        env.storage().instance().set(&DataKey::MaxWager, &max_wager);
+        Ok(())
+    }
+
+    /// Read the current wager limits used during bet placement.
+    pub fn get_wager_limits(env: Env) -> Result<WagerLimits, Error> {
+        require_initialized(&env)?;
+
+        Ok(WagerLimits {
+            min_wager: env.storage().instance().get(&DataKey::MinWager).unwrap(),
+            max_wager: env.storage().instance().get(&DataKey::MaxWager).unwrap(),
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +378,26 @@ impl DiceRoll {
 fn require_initialized(env: &Env) -> Result<(), Error> {
     if !env.storage().instance().has(&DataKey::Admin) {
         return Err(Error::NotInitialized);
+    }
+    Ok(())
+}
+
+fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    let admin: Address = env
+        .storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(Error::NotInitialized)?;
+    caller.require_auth();
+    if caller != &admin {
+        return Err(Error::NotAuthorized);
+    }
+    Ok(())
+}
+
+fn validate_wager_range(min_wager: i128, max_wager: i128) -> Result<(), Error> {
+    if min_wager <= 0 || max_wager <= 0 || min_wager > max_wager {
+        return Err(Error::InvalidWagerRange);
     }
     Ok(())
 }

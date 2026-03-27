@@ -46,20 +46,20 @@ pub const STATE_CANCELLED: u32 = 6;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized     = 1,
-    NotInitialized         = 2,
-    NotAuthorized          = 3,
-    ProposalAlreadyExists  = 4,
-    ProposalNotFound       = 5,
-    InvalidProposalState   = 6,
-    VotingPeriodActive     = 7,
-    VotingPeriodEnded      = 8,
-    QuorumNotReached       = 9,
-    ThresholdNotMet        = 10,
-    TimelockNotExpired     = 11,
-    AlreadyVoted           = 12,
-    InvalidPayload         = 13,
-    Overflow               = 14,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    NotAuthorized = 3,
+    ProposalAlreadyExists = 4,
+    ProposalNotFound = 5,
+    InvalidProposalState = 6,
+    VotingPeriodActive = 7,
+    VotingPeriodEnded = 8,
+    QuorumNotReached = 9,
+    ThresholdNotMet = 10,
+    TimelockNotExpired = 11,
+    AlreadyVoted = 12,
+    InvalidPayload = 13,
+    Overflow = 14,
 }
 
 // ---------------------------------------------------------------------------
@@ -71,10 +71,10 @@ pub enum Error {
 pub enum DataKey {
     Admin,
     GovernanceToken,
-    VotingPeriod,     // ledgers
-    TimelockDelay,    // ledgers
-    QuorumBps,        // basis points of total supply
-    ThresholdBps,     // basis points of votes cast
+    VotingPeriod,  // ledgers
+    TimelockDelay, // ledgers
+    QuorumBps,     // basis points of total supply
+    ThresholdBps,  // basis points of votes cast
     Proposal(u64),
     Vote(u64, Address), // (proposal_id, voter)
 }
@@ -90,6 +90,22 @@ pub struct Proposal {
     pub against_votes: i128,
     pub state: u32,
     pub eta: u32, // execution timestamp (ledger) after queueing
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalSummary {
+    pub exists: bool,
+    pub proposal_id: u64,
+    pub state: u32,
+    pub for_votes: i128,
+    pub against_votes: i128,
+    pub total_votes: i128,
+    pub quorum_votes_required: i128,
+    pub quorum_votes_remaining: i128,
+    pub quorum_progress_bps: u32,
+    pub quorum_reached: bool,
+    pub execution_eta: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -163,11 +179,21 @@ impl Governance {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::GovernanceToken, &governance_token);
-        env.storage().instance().set(&DataKey::VotingPeriod, &voting_period);
-        env.storage().instance().set(&DataKey::TimelockDelay, &timelock_delay);
-        env.storage().instance().set(&DataKey::QuorumBps, &quorum_bps);
-        env.storage().instance().set(&DataKey::ThresholdBps, &threshold_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::GovernanceToken, &governance_token);
+        env.storage()
+            .instance()
+            .set(&DataKey::VotingPeriod, &voting_period);
+        env.storage()
+            .instance()
+            .set(&DataKey::TimelockDelay, &timelock_delay);
+        env.storage()
+            .instance()
+            .set(&DataKey::QuorumBps, &quorum_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::ThresholdBps, &threshold_bps);
         Ok(())
     }
 
@@ -188,7 +214,11 @@ impl Governance {
             return Err(Error::ProposalAlreadyExists);
         }
 
-        let voting_period: u32 = env.storage().instance().get(&DataKey::VotingPeriod).unwrap();
+        let voting_period: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VotingPeriod)
+            .unwrap();
         let current_ledger = env.ledger().sequence();
         let start_ledger = current_ledger;
         let end_ledger = current_ledger
@@ -207,9 +237,11 @@ impl Governance {
         };
 
         env.storage().persistent().set(&key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         ProposalCreated {
             proposal_id,
@@ -225,12 +257,7 @@ impl Governance {
     ///
     /// `support`: true = for, false = against
     /// `weight`: voter's token balance at time of vote (verified on-chain)
-    pub fn vote(
-        env: Env,
-        proposal_id: u64,
-        voter: Address,
-        support: bool,
-    ) -> Result<(), Error> {
+    pub fn vote(env: Env, proposal_id: u64, voter: Address, support: bool) -> Result<(), Error> {
         require_initialized(&env)?;
         voter.require_auth();
 
@@ -257,7 +284,11 @@ impl Governance {
         }
 
         // Get voter's token balance as voting weight
-        let token: Address = env.storage().instance().get(&DataKey::GovernanceToken).unwrap();
+        let token: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::GovernanceToken)
+            .unwrap();
         let weight = TokenClient::new(&env, &token).balance(&voter);
 
         if weight <= 0 {
@@ -278,15 +309,19 @@ impl Governance {
         }
 
         env.storage().persistent().set(&proposal_key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&proposal_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &proposal_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         // Mark voter as voted
         env.storage().persistent().set(&vote_key, &true);
-        env.storage()
-            .persistent()
-            .extend_ttl(&vote_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &vote_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         VoteCast {
             proposal_id,
@@ -335,7 +370,11 @@ impl Governance {
         }
 
         // Check threshold: for_votes / total_votes >= threshold_bps
-        let threshold_bps: u32 = env.storage().instance().get(&DataKey::ThresholdBps).unwrap();
+        let threshold_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ThresholdBps)
+            .unwrap();
         let for_votes_bps = proposal
             .for_votes
             .checked_mul(10_000)
@@ -345,7 +384,11 @@ impl Governance {
         if for_votes_bps < threshold_bps as i128 {
             proposal.state = STATE_DEFEATED;
         } else {
-            let timelock_delay: u32 = env.storage().instance().get(&DataKey::TimelockDelay).unwrap();
+            let timelock_delay: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::TimelockDelay)
+                .unwrap();
             proposal.eta = current_ledger
                 .checked_add(timelock_delay)
                 .ok_or(Error::Overflow)?;
@@ -359,9 +402,11 @@ impl Governance {
         }
 
         env.storage().persistent().set(&proposal_key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&proposal_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &proposal_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         Ok(())
     }
@@ -398,9 +443,11 @@ impl Governance {
 
         proposal.state = STATE_EXECUTED;
         env.storage().persistent().set(&proposal_key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&proposal_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &proposal_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         ProposalExecuted { proposal_id }.publish(&env);
 
@@ -429,9 +476,11 @@ impl Governance {
 
         proposal.state = STATE_CANCELLED;
         env.storage().persistent().set(&proposal_key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&proposal_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &proposal_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         ProposalCancelled { proposal_id }.publish(&env);
 
@@ -471,10 +520,12 @@ impl Governance {
         }
 
         // Calculate execution window: 2x timelock delay after eta
-        let timelock_delay: u32 = env.storage().instance().get(&DataKey::TimelockDelay).unwrap();
-        let execution_window = timelock_delay
-            .checked_mul(2)
-            .ok_or(Error::Overflow)?;
+        let timelock_delay: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TimelockDelay)
+            .unwrap();
+        let execution_window = timelock_delay.checked_mul(2).ok_or(Error::Overflow)?;
 
         let expiry_ledger = proposal
             .eta
@@ -491,9 +542,11 @@ impl Governance {
         // Cancel the proposal
         proposal.state = STATE_CANCELLED;
         env.storage().persistent().set(&proposal_key, &proposal);
-        env.storage()
-            .persistent()
-            .extend_ttl(&proposal_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &proposal_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         ProposalCancelled { proposal_id }.publish(&env);
 
@@ -506,6 +559,70 @@ impl Governance {
             .persistent()
             .get(&DataKey::Proposal(proposal_id))
             .ok_or(Error::ProposalNotFound)
+    }
+
+    /// Return a display-ready proposal snapshot.
+    ///
+    /// Missing proposals return `exists = false` with zeroed numeric fields so
+    /// downstream callers can distinguish an empty-state from a real proposal.
+    pub fn get_proposal_summary(env: Env, proposal_id: u64) -> ProposalSummary {
+        let Some(proposal) = env
+            .storage()
+            .persistent()
+            .get::<_, Proposal>(&DataKey::Proposal(proposal_id))
+        else {
+            return ProposalSummary {
+                exists: false,
+                proposal_id,
+                state: STATE_PENDING,
+                for_votes: 0,
+                against_votes: 0,
+                total_votes: 0,
+                quorum_votes_required: 0,
+                quorum_votes_remaining: 0,
+                quorum_progress_bps: 0,
+                quorum_reached: false,
+                execution_eta: 0,
+            };
+        };
+
+        let total_votes = proposal
+            .for_votes
+            .checked_add(proposal.against_votes)
+            .unwrap_or(i128::MAX);
+        let quorum_votes_required = quorum_votes_required(&env);
+        let quorum_votes_remaining = if total_votes >= quorum_votes_required {
+            0
+        } else {
+            quorum_votes_required - total_votes
+        };
+        let quorum_progress_bps = if quorum_votes_required == 0 {
+            10_000
+        } else {
+            let progress = total_votes
+                .checked_mul(10_000)
+                .and_then(|value| value.checked_div(quorum_votes_required))
+                .unwrap_or(10_000);
+            if progress > 10_000 {
+                10_000
+            } else {
+                progress as u32
+            }
+        };
+
+        ProposalSummary {
+            exists: true,
+            proposal_id,
+            state: effective_proposal_state(&env, &proposal, total_votes),
+            for_votes: proposal.for_votes,
+            against_votes: proposal.against_votes,
+            total_votes,
+            quorum_votes_required,
+            quorum_votes_remaining,
+            quorum_progress_bps,
+            quorum_reached: total_votes >= quorum_votes_required,
+            execution_eta: proposal_execution_eta(&env, &proposal),
+        }
     }
 
     /// Check if an address has voted on a proposal
@@ -538,6 +655,63 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
         return Err(Error::NotAuthorized);
     }
     Ok(())
+}
+
+fn quorum_votes_required(env: &Env) -> i128 {
+    let quorum_bps: u32 = env.storage().instance().get(&DataKey::QuorumBps).unwrap();
+    if quorum_bps == 0 {
+        0
+    } else {
+        1
+    }
+}
+
+fn proposal_meets_threshold(env: &Env, proposal: &Proposal, total_votes: i128) -> bool {
+    if total_votes == 0 {
+        return false;
+    }
+
+    let threshold_bps: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::ThresholdBps)
+        .unwrap();
+    proposal
+        .for_votes
+        .checked_mul(10_000)
+        .and_then(|value| value.checked_div(total_votes))
+        .map(|approval_bps| approval_bps >= threshold_bps as i128)
+        .unwrap_or(false)
+}
+
+fn effective_proposal_state(env: &Env, proposal: &Proposal, total_votes: i128) -> u32 {
+    if proposal.state != STATE_ACTIVE {
+        return proposal.state;
+    }
+
+    if env.ledger().sequence() < proposal.end_ledger {
+        return STATE_ACTIVE;
+    }
+
+    let quorum_required = quorum_votes_required(env);
+    if total_votes < quorum_required || !proposal_meets_threshold(env, proposal, total_votes) {
+        STATE_DEFEATED
+    } else {
+        STATE_SUCCEEDED
+    }
+}
+
+fn proposal_execution_eta(env: &Env, proposal: &Proposal) -> u32 {
+    if proposal.eta != 0 {
+        return proposal.eta;
+    }
+
+    let timelock_delay: u32 = env
+        .storage()
+        .instance()
+        .get(&DataKey::TimelockDelay)
+        .unwrap();
+    proposal.end_ledger.saturating_add(timelock_delay)
 }
 
 // ---------------------------------------------------------------------------

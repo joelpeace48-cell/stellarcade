@@ -399,8 +399,7 @@ fn test_metrics_initial_state() {
     assert_eq!(metrics.available_balance, 0);
     assert_eq!(metrics.reserved_amount, 0);
     assert_eq!(metrics.payouts_count, 0);
-    // Ledger sequence varies by test environment, but should be initialized.
-    assert!(metrics.last_update_ledger >= 0);
+    assert_eq!(metrics.last_update_ledger, env.ledger().sequence());
 }
 
 #[test]
@@ -449,4 +448,48 @@ fn test_metrics_after_reserve_release_payout() {
     assert_eq!(m3.available_balance, 3_500);
     assert_eq!(m3.reserved_amount, 1_000);
     assert_eq!(m3.last_update_ledger, 400);
+}
+
+#[test]
+fn test_rotate_admin_success() {
+    let env = Env::default();
+    let (client, admin, _, _) = setup(&env);
+    env.mock_all_auths();
+
+    let new_admin = Address::generate(&env);
+    client.rotate_admin(&admin, &new_admin);
+
+    let snapshot = client.get_config_snapshot();
+    assert_eq!(snapshot.admin, new_admin);
+}
+
+#[test]
+fn test_rotate_admin_unauthorized_rejected() {
+    let env = Env::default();
+    let (client, _, _, _) = setup(&env);
+    env.mock_all_auths();
+
+    let attacker = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let result = client.try_rotate_admin(&attacker, &new_admin);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_config_snapshot_accuracy() {
+    let env = Env::default();
+    let (client, admin, funder, token_addr) = setup(&env);
+    env.mock_all_auths();
+
+    env.ledger().set_sequence_number(55);
+    client.fund(&funder, &1_500i128);
+    client.reserve(&admin, &9u64, &500i128);
+
+    let snapshot = client.get_config_snapshot();
+    assert_eq!(snapshot.admin, admin);
+    assert_eq!(snapshot.token, token_addr);
+    assert_eq!(snapshot.available_balance, 1_000);
+    assert_eq!(snapshot.reserved_amount, 500);
+    assert_eq!(snapshot.payouts_count, 0);
+    assert_eq!(snapshot.last_update_ledger, 55);
 }

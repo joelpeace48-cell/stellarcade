@@ -7,7 +7,7 @@ import WalletStatusCard from '../components/v1/WalletStatusCard';
 import { isSupportedNetwork } from '../utils/v1/useNetworkGuard';
 import { useWalletStatus } from '../hooks/v1/useWalletStatus';
 
-const GameLobby: React.FC = () => {
+export const GameLobby: React.FC = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -184,8 +184,8 @@ nav a:hover, nav a.active {
 }
 
 .status-card {
-  background: var(--bg-card);
-  border: 1px solid var(--glass-border);
+  background: var(--tone-bg, var(--bg-card));
+  border: 1px solid var(--tone-accent, var(--glass-border));
   border-radius: 12px;
   padding: 1.5rem;
   position: relative;
@@ -193,8 +193,14 @@ nav a:hover, nav a.active {
   transition: border-color 0.3s ease, transform 0.3s ease;
 }
 
+.status-card.tone-neutral { --tone-accent: #888888; --tone-bg: rgba(255, 255, 255, 0.05); }
+.status-card.tone-info { --tone-accent: #3b82f6; --tone-bg: rgba(59, 130, 246, 0.1); }
+.status-card.tone-success { --tone-accent: #22c55e; --tone-bg: rgba(34, 197, 94, 0.1); }
+.status-card.tone-warning { --tone-accent: #f59e0b; --tone-bg: rgba(245, 158, 11, 0.1); }
+.status-card.tone-error { --tone-accent: #ef4444; --tone-bg: rgba(239, 68, 68, 0.1); }
+
 .status-card:hover {
-  border-color: rgba(0, 255, 204, 0.3);
+  border-color: var(--accent);
   transform: translateY(-4px);
 }
 
@@ -204,6 +210,7 @@ nav a:hover, nav a.active {
   left: 0;
   width: 100%;
   height: 4px;
+  background-color: var(--tone-accent, var(--accent));
 }
 
 .card-header {

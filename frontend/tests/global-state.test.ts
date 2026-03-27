@@ -104,4 +104,43 @@ describe("GlobalStateStore", () => {
     fireEvent.click(screen.getByTestId("persisted-error-dismiss"));
     expect(isBannerDismissed("error-notice", "rpc-node:v1")).toBe(true);
   });
+
+  it("persists and restores pending transactions", () => {
+    const store = new GlobalStateStore({ storageKey: "pending_tx_test" });
+    const snapshot = {
+      operation: "swap.play",
+      phase: "CONFIRMING",
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    store.dispatch({
+      type: "PENDING_TX_SET",
+      payload: { snapshot },
+    });
+
+    const store2 = new GlobalStateStore({ storageKey: "pending_tx_test" });
+    expect(store2.getState().pendingTransaction).toEqual(snapshot);
+  });
+
+  it("invalidates stale pending transactions after 30 minutes", async () => {
+    const started = Date.now() - 31 * 60 * 1000;
+
+    // Simulate manual persistence of stale content
+    const payload = {
+      auth: { isAuthenticated: false },
+      flags: {},
+      pendingTransaction: {
+        operation: "swap.play",
+        phase: "SUBMITTING",
+        startedAt: started,
+        updatedAt: started,
+      },
+      storedAt: started,
+    };
+    localStorage.setItem("stale_tx_test", JSON.stringify(payload));
+
+    const store2 = new GlobalStateStore({ storageKey: "stale_tx_test" });
+    expect(store2.getState().pendingTransaction).toBeNull();
+  });
 });

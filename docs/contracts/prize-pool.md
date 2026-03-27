@@ -23,6 +23,25 @@ pub fn init(env: Env, admin: Address, token: Address) -> Result<(), Error>
 
 `Result<(), Error>`
 
+### `rotate_admin`
+Rotate the admin address. Only the current admin may perform this action.
+
+```rust
+pub fn rotate_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `admin` | `Address` |
+| `new_admin` | `Address` |
+
+#### Return Type
+
+`Result<(), Error>`
+
 ### `fund`
 Transfer `amount` tokens from `from` into the pool.  Any address may fund the pool (house top-up, admin, or a game contract forwarding a player's wager). The caller must sign an auth tree covering both this invocation and the downstream `token.transfer` sub-call.
 
@@ -136,4 +155,21 @@ pub fn get_prize_pool_metrics(env: Env) -> Result<PrizePoolMetrics, Error>
 #### Return Type
 
 `Result<PrizePoolMetrics, Error>`
+
+### `get_config_snapshot`
+Returns a stable configuration snapshot for backend consumers and operators.
+
+```rust
+pub fn get_config_snapshot(env: Env) -> Result<PrizePoolConfigSnapshot, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`Result<PrizePoolConfigSnapshot, Error>`
 

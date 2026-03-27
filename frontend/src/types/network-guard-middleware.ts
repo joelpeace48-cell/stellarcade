@@ -54,6 +54,8 @@ export interface NetworkGuardInput {
   contractAddresses?: ContractAddressRegistry;
   operationKey?: string;
   allowDuplicateOperation?: boolean;
+  isIdempotent?: boolean;
+  resumeOnNetworkRecovery?: boolean;
 }
 
 export interface NetworkIdentity {

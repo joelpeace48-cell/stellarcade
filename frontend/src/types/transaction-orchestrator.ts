@@ -89,6 +89,7 @@ export interface TransactionRequest<TInput, TData> {
 
 export interface TransactionOrchestratorState<TData = unknown> {
   phase: TransactionPhase;
+  completedSteps: TransactionPhase[];
   operation?: string;
   correlationId?: string;
   txHash?: string;
@@ -115,6 +116,12 @@ export type TransactionResult<TData> =
       error: OrchestratorError;
       state: TransactionOrchestratorState<TData>;
     };
+
+export interface TransactionProgressSnapshot {
+  currentStep: TransactionPhase;
+  completedSteps: TransactionPhase[];
+  lastError?: OrchestratorError;
+}
 
 export type TransactionStateSubscriber<TData = unknown> = (
   state: TransactionOrchestratorState<TData>,

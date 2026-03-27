@@ -8,27 +8,30 @@ import {
   StaleSessionError,
   ValidationError,
   WalletSessionError,
+  WalletSessionRefreshPhase,
+  WalletSessionRefreshPolicy,
+  WalletSessionRefreshState,
+  WalletSessionRefreshTrigger,
 } from "../types/wallet-session";
 
 type Subscriber = (
   state: WalletSessionState,
   meta?: WalletSessionMeta | null,
   error?: Error | null,
+  refreshState?: WalletSessionRefreshState,
 ) => void;
 
 const DEFAULT_KEY = "stc_wallet_session_v1";
-const DEFAULT_EXPIRY = 1000 * 60 * 60 * 24 * 7; // 7 days
+const DEFAULT_EXPIRY = 1000 * 60 * 60 * 24 * 7;
+const DEFAULT_REFRESH_POLICY = {
+  maxAttempts: 3,
+  initialBackoffMs: 500,
+  backoffMultiplier: 2,
+} satisfies Required<WalletSessionRefreshPolicy>;
 
-/**
- * Default lead time (ms) before persisted session expiry to show a warning modal.
- * Safe default (no env reads); apps may pass a different threshold via modal props.
- */
-export const WALLET_SESSION_WARN_BEFORE_EXPIRY_MS_DEFAULT = 5 * 60 * 1000; // 5 minutes
-
-/** How often the session timeout UI should poll remaining time (ms). */
+export const WALLET_SESSION_WARN_BEFORE_EXPIRY_MS_DEFAULT = 5 * 60 * 1000;
 export const WALLET_SESSION_EXPIRY_POLL_MS_DEFAULT = 15_000;
 
-// Minimal adapter interface for injected wallet providers.
 export interface WalletProviderAdapter {
   isAvailable(): boolean;
   connect(): Promise<{
@@ -37,7 +40,6 @@ export interface WalletProviderAdapter {
     network: string;
   }>;
   disconnect?(): Promise<void>;
-  // signMessage is optional; used to verify ownership when restoring
   signMessage?(message: string): Promise<string>;
 }
 
@@ -49,19 +51,32 @@ export class WalletSessionService {
   private state: WalletSessionState = WalletSessionState.DISCONNECTED;
   private meta: WalletSessionMeta | null = null;
   private subscribers: Set<Subscriber> = new Set();
+  private readonly now: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private refreshState: WalletSessionRefreshState = {
+    phase: WalletSessionRefreshPhase.IDLE,
+    trigger: "silent",
+    attempt: 0,
+    maxAttempts: 1,
+    terminal: false,
+  };
 
   constructor(opts?: WalletSessionOptions) {
     this.storageKey = opts?.storageKey ?? DEFAULT_KEY;
     this.sessionExpiryMs = opts?.sessionExpiryMs ?? DEFAULT_EXPIRY;
     this.supportedNetworks = opts?.supportedNetworks as string[] | undefined;
-    // try to restore on construction (non-blocking)
+    this.now = opts?.now ?? (() => Date.now());
+    this.sleep =
+      opts?.sleep ??
+      ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+
     try {
       const restored = this.restore();
       if (restored) {
         this.meta = restored;
       }
-    } catch (e) {
-     
+    } catch {
+      // restore sanitizes storage on failure
     }
   }
 
@@ -71,18 +86,17 @@ export class WalletSessionService {
 
   public subscribe(fn: Subscriber) {
     this.subscribers.add(fn);
-    // send current state immediately
-    fn(this.state, this.meta, null);
+    fn(this.state, this.meta, null, this.getRefreshState());
     return () => {
-      // ensure cleanup returns void (React expects void | Destructor)
       this.subscribers.delete(fn);
     };
   }
 
   private notify(error: Error | null = null) {
-    for (const s of this.subscribers) {
+    const refreshSnapshot = this.getRefreshState();
+    for (const subscriber of this.subscribers) {
       try {
-        s(this.state, this.meta, error);
+        subscriber(this.state, this.meta, error, refreshSnapshot);
       } catch (e) {
         console.error("Subscriber error", e);
       }
@@ -94,24 +108,29 @@ export class WalletSessionService {
       localStorage.removeItem(this.storageKey);
       return;
     }
-    const payload = {
-      meta,
-      storedAt: Date.now(),
-    };
-    localStorage.setItem(this.storageKey, JSON.stringify(payload));
+
+    localStorage.setItem(
+      this.storageKey,
+      JSON.stringify({
+        meta,
+        storedAt: this.now(),
+      }),
+    );
   }
 
   private restore(): WalletSessionMeta | null {
     const raw = localStorage.getItem(this.storageKey);
     if (!raw) return null;
+
     try {
       const parsed = JSON.parse(raw) as {
         meta: WalletSessionMeta;
         storedAt: number;
       };
-      if (typeof parsed?.storedAt !== "number" || !parsed?.meta)
+      if (typeof parsed?.storedAt !== "number" || !parsed?.meta) {
         throw new Error("invalid");
-      if (Date.now() - parsed.storedAt > this.sessionExpiryMs) {
+      }
+      if (this.now() - parsed.storedAt > this.sessionExpiryMs) {
         this.persist(null);
         throw new StaleSessionError();
       }
@@ -123,23 +142,19 @@ export class WalletSessionService {
         throw new StaleSessionError();
       }
       return parsed.meta;
-    } catch (e) {
+    } catch {
       localStorage.removeItem(this.storageKey);
       return null;
     }
   }
 
-  public async connect(options?: {
-    network?: string;
-  }): Promise<WalletSessionMeta> {
-    if (!this.providerAdapter) {
-      throw new ProviderNotFoundError();
-    }
-    if (!this.providerAdapter.isAvailable()) {
+  public async connect(options?: { network?: string }): Promise<WalletSessionMeta> {
+    if (!this.providerAdapter || !this.providerAdapter.isAvailable()) {
       throw new ProviderNotFoundError();
     }
 
     this.state = WalletSessionState.CONNECTING;
+    this.refreshState = this.createIdleRefreshState();
     this.notify();
 
     if (
@@ -154,15 +169,15 @@ export class WalletSessionService {
     }
 
     try {
-      const res = await this.providerAdapter.connect();
-      if (!res || !res.address) throw new Error("connect_no_address");
+      const result = await this.providerAdapter.connect();
+      if (!result || !result.address) throw new Error("connect_no_address");
 
       const meta: WalletSessionMeta = {
-        provider: res.provider,
-        address: res.address,
-        network: options?.network ?? (res.network as string) ?? "UNKNOWN",
-        connectedAt: Date.now(),
-        lastActiveAt: Date.now(),
+        provider: result.provider,
+        address: result.address,
+        network: options?.network ?? result.network ?? "UNKNOWN",
+        connectedAt: this.now(),
+        lastActiveAt: this.now(),
       };
 
       this.meta = meta;
@@ -170,69 +185,41 @@ export class WalletSessionService {
       this.persist(meta);
       this.notify();
       return meta;
-    } catch (e: any) {
+    } catch (error) {
       this.state = WalletSessionState.DISCONNECTED;
-      const err = this.mapError(e);
-      this.notify(err);
-      throw err;
+      const mapped = this.mapError(error as Error);
+      this.notify(mapped);
+      throw mapped;
     }
   }
 
-  // Disconnect and clear persisted session
   public async disconnect(): Promise<void> {
     this.state = WalletSessionState.DISCONNECTED;
     try {
       if (this.providerAdapter?.disconnect) {
         await this.providerAdapter.disconnect();
       }
-    } catch (e) {
-      // ignore provider disconnect errors but notify
-      const err = this.mapError(e as Error);
+    } catch (error) {
+      const mapped = this.mapError(error as Error);
       this.persist(null);
       this.meta = null;
-      this.notify(err);
+      this.notify(mapped);
       return;
     }
+
     this.persist(null);
     this.meta = null;
     this.notify();
   }
 
-
   public async reconnect(): Promise<WalletSessionMeta> {
-    if (!this.providerAdapter) throw new ProviderNotFoundError();
-    const stored = this.restore();
-    if (!stored) throw new StaleSessionError();
+    return this.runRefresh("manual", { maxAttempts: 1 });
+  }
 
-    this.state = WalletSessionState.RECONNECTING;
-    this.notify();
-
-    try {
-      if (this.providerAdapter.signMessage) {
-        const challenge = `stc_reconnect:${stored.address}:${Math.random().toString(36).slice(2)}`;
-        try {
-          await this.providerAdapter.signMessage(challenge);
-        } catch (e) {
-          const mapped = this.mapError(e as Error);
-          this.state = WalletSessionState.DISCONNECTED;
-          this.notify(mapped);
-          throw mapped;
-        }
-      }
-
-      // If reached here, treat as connected
-      const meta = { ...stored, lastActiveAt: Date.now() };
-      this.meta = meta;
-      this.state = WalletSessionState.CONNECTED;
-      this.persist(meta);
-      this.notify();
-      return meta;
-    } catch (e: any) {
-      this.state = WalletSessionState.DISCONNECTED;
-      const err = this.mapError(e);
-      this.notify(err);
-      throw err;
-    }
+  public async silentRefresh(
+    policy?: WalletSessionRefreshPolicy,
+  ): Promise<WalletSessionMeta> {
+    return this.runRefresh("silent", policy);
   }
 
   public getState() {
@@ -243,23 +230,21 @@ export class WalletSessionService {
     return this.meta;
   }
 
-  /**
-   * Milliseconds until the persisted session row expires (from localStorage `storedAt` + expiry),
-   * or null if not connected or no persisted row.
-   */
+  public getRefreshState(): WalletSessionRefreshState {
+    return { ...this.refreshState };
+  }
+
   public getRemainingPersistenceMs(): number | null {
     const expiresAt = this.getSessionExpiryTimestampMs();
     if (expiresAt === null) return null;
-    return Math.max(0, expiresAt - Date.now());
+    return Math.max(0, expiresAt - this.now());
   }
 
-  /**
-   * Absolute timestamp (ms epoch) when persisted session expires, or null.
-   */
   public getSessionExpiryTimestampMs(): number | null {
     if (this.state !== WalletSessionState.CONNECTED || !this.meta) {
       return null;
     }
+
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (!raw) return null;
@@ -271,24 +256,178 @@ export class WalletSessionService {
     }
   }
 
-  /**
-   * Refreshes persistence `storedAt` to now (extends wall-clock session validity).
-   */
   public extendPersistedSession(): void {
     if (!this.meta) return;
     this.persist(this.meta);
     this.notify();
   }
 
-  private mapError(e: Error): Error {
-    if (!e) return new WalletSessionError("unknown_error", "Unknown error");
-    const msg = (e as any).message ?? "";
-    if (msg.includes("User rejected") || msg.includes("rejected"))
+  private createIdleRefreshState(
+    patch: Partial<WalletSessionRefreshState> = {},
+  ): WalletSessionRefreshState {
+    return {
+      phase: WalletSessionRefreshPhase.IDLE,
+      trigger: patch.trigger ?? this.refreshState.trigger ?? "silent",
+      attempt: patch.attempt ?? 0,
+      maxAttempts: patch.maxAttempts ?? this.refreshState.maxAttempts ?? 1,
+      terminal: patch.terminal ?? false,
+      startedAt: patch.startedAt ?? this.refreshState.startedAt,
+      nextRetryAt: patch.nextRetryAt,
+      backoffMs: patch.backoffMs,
+      lastSucceededAt: patch.lastSucceededAt ?? this.refreshState.lastSucceededAt,
+      lastFailedAt: patch.lastFailedAt ?? this.refreshState.lastFailedAt,
+      errorCode: patch.errorCode,
+    };
+  }
+
+  private computeBackoffMs(policy: Required<WalletSessionRefreshPolicy>, attempt: number) {
+    const exponent = Math.max(0, attempt - 1);
+    return Math.round(
+      policy.initialBackoffMs * Math.pow(policy.backoffMultiplier, exponent),
+    );
+  }
+
+  private isRetryableRefreshError(error: Error): boolean {
+    if (error instanceof ProviderNotFoundError) return false;
+    if (error instanceof RejectedSignatureError) return false;
+    if (error instanceof StaleSessionError) return false;
+    if (error instanceof ValidationError) return false;
+    return true;
+  }
+
+  private async runRefresh(
+    trigger: WalletSessionRefreshTrigger,
+    policy?: WalletSessionRefreshPolicy,
+  ): Promise<WalletSessionMeta> {
+    if (!this.providerAdapter) throw new ProviderNotFoundError();
+
+    const stored = this.restore();
+    if (!stored) {
+      const error = new StaleSessionError();
+      this.refreshState = {
+        phase: WalletSessionRefreshPhase.FAILED,
+        trigger,
+        attempt: 0,
+        maxAttempts: 1,
+        terminal: true,
+        lastFailedAt: this.now(),
+        errorCode: error.code,
+      };
+      throw error;
+    }
+
+    const mergedPolicy: Required<WalletSessionRefreshPolicy> = {
+      ...DEFAULT_REFRESH_POLICY,
+      ...policy,
+    };
+    const startedAt = this.now();
+    let attempt = 0;
+
+    this.state = WalletSessionState.RECONNECTING;
+
+    while (attempt < mergedPolicy.maxAttempts) {
+      attempt += 1;
+      this.refreshState = {
+        phase: WalletSessionRefreshPhase.REFRESHING,
+        trigger,
+        attempt,
+        maxAttempts: mergedPolicy.maxAttempts,
+        startedAt,
+        terminal: false,
+        lastSucceededAt: this.refreshState.lastSucceededAt,
+      };
+      this.notify();
+
+      try {
+        if (this.providerAdapter.signMessage) {
+          const challenge = `stc_reconnect:${stored.address}:${Math.random()
+            .toString(36)
+            .slice(2)}`;
+          await this.providerAdapter.signMessage(challenge);
+        }
+
+        const meta = { ...stored, lastActiveAt: this.now() };
+        this.meta = meta;
+        this.state = WalletSessionState.CONNECTED;
+        this.persist(meta);
+        this.refreshState = this.createIdleRefreshState({
+          trigger,
+          attempt,
+          maxAttempts: mergedPolicy.maxAttempts,
+          startedAt,
+          lastSucceededAt: this.now(),
+        });
+        this.notify();
+        return meta;
+      } catch (error) {
+        const mapped = this.mapError(error as Error);
+        const retryable =
+          this.isRetryableRefreshError(mapped) && attempt < mergedPolicy.maxAttempts;
+
+        if (retryable) {
+          const backoffMs = this.computeBackoffMs(mergedPolicy, attempt);
+          this.refreshState = {
+            phase: WalletSessionRefreshPhase.BACKING_OFF,
+            trigger,
+            attempt,
+            maxAttempts: mergedPolicy.maxAttempts,
+            startedAt,
+            nextRetryAt: this.now() + backoffMs,
+            backoffMs,
+            terminal: false,
+            errorCode: mapped instanceof WalletSessionError ? mapped.code : undefined,
+          };
+          this.notify(mapped);
+          await this.sleep(backoffMs);
+          continue;
+        }
+
+        this.state = WalletSessionState.DISCONNECTED;
+        this.refreshState = {
+          phase: WalletSessionRefreshPhase.FAILED,
+          trigger,
+          attempt,
+          maxAttempts: mergedPolicy.maxAttempts,
+          startedAt,
+          lastFailedAt: this.now(),
+          terminal: true,
+          errorCode: mapped instanceof WalletSessionError ? mapped.code : undefined,
+        };
+        this.notify(mapped);
+        throw mapped;
+      }
+    }
+
+    const exhausted = new WalletSessionError(
+      "refresh_retries_exhausted",
+      "Wallet session refresh retries exhausted",
+    );
+    this.state = WalletSessionState.DISCONNECTED;
+    this.refreshState = {
+      phase: WalletSessionRefreshPhase.FAILED,
+      trigger,
+      attempt: mergedPolicy.maxAttempts,
+      maxAttempts: mergedPolicy.maxAttempts,
+      startedAt,
+      lastFailedAt: this.now(),
+      terminal: true,
+      errorCode: exhausted.code,
+    };
+    this.notify(exhausted);
+    throw exhausted;
+  }
+
+  private mapError(error: Error): Error {
+    if (!error) return new WalletSessionError("unknown_error", "Unknown error");
+    const message = (error as any).message ?? "";
+    if (message.includes("User rejected") || message.includes("rejected")) {
       return new RejectedSignatureError();
-    if (msg.includes("provider") || msg.includes("not found"))
+    }
+    if (message.includes("provider") || message.includes("not found")) {
       return new ProviderNotFoundError();
-    if (e instanceof WalletSessionError) return e;
-    return new WalletSessionError("unknown_error", msg);
+    }
+    if (error instanceof WalletSessionError) return error;
+    return new WalletSessionError("unknown_error", message);
   }
 }
 

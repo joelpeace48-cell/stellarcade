@@ -155,10 +155,42 @@ describe('Audit Log Service', () => {
       expect(hash1).toBe(hash2);
     });
 
+    test('normalizes object key order before hashing', () => {
+      const hash1 = audit.hashPayload({ amount: 100, currency: 'XLM' });
+      const hash2 = audit.hashPayload({ currency: 'XLM', amount: 100 });
+      expect(hash1).toBe(hash2);
+    });
+
     test('returns different hash for different input', () => {
       const hash1 = audit.hashPayload({ amount: 100 });
       const hash2 = audit.hashPayload({ amount: 200 });
       expect(hash1).not.toBe(hash2);
+    });
+  });
+
+  describe('redaction', () => {
+    test('redacts sensitive metadata fields before persisting', async () => {
+      await audit.log({
+        actor: 'user-999',
+        action: 'wallet.deposit',
+        target: 'user-999',
+        metadata: {
+          amount: 100,
+          signature: 'secret-signature',
+          nested: {
+            token: 'jwt-token',
+          },
+        },
+      });
+
+      const insertCall = mockInsert.mock.calls[0][0];
+      expect(JSON.parse(insertCall.metadata)).toEqual({
+        amount: 100,
+        signature: '[REDACTED]',
+        nested: {
+          token: '[REDACTED]',
+        },
+      });
     });
   });
 });

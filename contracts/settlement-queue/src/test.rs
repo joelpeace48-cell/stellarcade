@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, symbol_short};
+use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
 struct Setup<'a> {
     env: Env,
@@ -47,7 +47,8 @@ fn test_enqueue_and_process() {
     let user = Address::generate(&s.env);
     let s_id = symbol_short!("s1");
 
-    s.client.enqueue_settlement(&s_id, &user, &1000i128, &symbol_short!("win"));
+    s.client
+        .enqueue_settlement(&s_id, &user, &1000i128, &symbol_short!("win"));
 
     let state = s.client.settlement_state(&s_id).unwrap();
     assert_eq!(state.status, SettlementStatus::Pending);
@@ -63,20 +64,31 @@ fn test_enqueue_and_process() {
 fn test_fifo_processing() {
     let s = setup();
     let user = Address::generate(&s.env);
-    
+
     let s1 = symbol_short!("s1");
     let s2 = symbol_short!("s2");
 
-    s.client.enqueue_settlement(&s1, &user, &100, &symbol_short!("r1"));
-    s.client.enqueue_settlement(&s2, &user, &200, &symbol_short!("r2"));
+    s.client
+        .enqueue_settlement(&s1, &user, &100, &symbol_short!("r1"));
+    s.client
+        .enqueue_settlement(&s2, &user, &200, &symbol_short!("r2"));
 
     s.client.process_next(&1);
-    
-    assert_eq!(s.client.settlement_state(&s1).unwrap().status, SettlementStatus::Processed);
-    assert_eq!(s.client.settlement_state(&s2).unwrap().status, SettlementStatus::Pending);
+
+    assert_eq!(
+        s.client.settlement_state(&s1).unwrap().status,
+        SettlementStatus::Processed
+    );
+    assert_eq!(
+        s.client.settlement_state(&s2).unwrap().status,
+        SettlementStatus::Pending
+    );
 
     s.client.process_next(&1);
-    assert_eq!(s.client.settlement_state(&s2).unwrap().status, SettlementStatus::Processed);
+    assert_eq!(
+        s.client.settlement_state(&s2).unwrap().status,
+        SettlementStatus::Processed
+    );
 }
 
 #[test]
@@ -85,7 +97,8 @@ fn test_mark_failed() {
     let user = Address::generate(&s.env);
     let s_id = symbol_short!("s1");
 
-    s.client.enqueue_settlement(&s_id, &user, &500, &symbol_short!("fail"));
+    s.client
+        .enqueue_settlement(&s_id, &user, &500, &symbol_short!("fail"));
     s.client.mark_failed(&s_id, &404);
 
     let state = s.client.settlement_state(&s_id).unwrap();
@@ -107,19 +120,24 @@ fn test_get_batch_status_empty() {
 fn test_get_batch_status_mixed() {
     let s = setup();
     let user = Address::generate(&s.env);
-    
+
     // Total 5 items
     let s0 = symbol_short!("s0");
     let s1 = symbol_short!("s1");
     let s2 = symbol_short!("s2");
     let s3 = symbol_short!("s3");
     let s4 = symbol_short!("s4");
-    
-    s.client.enqueue_settlement(&s0, &user, &100, &symbol_short!("test"));
-    s.client.enqueue_settlement(&s1, &user, &100, &symbol_short!("test"));
-    s.client.enqueue_settlement(&s2, &user, &100, &symbol_short!("test"));
-    s.client.enqueue_settlement(&s3, &user, &100, &symbol_short!("test"));
-    s.client.enqueue_settlement(&s4, &user, &100, &symbol_short!("test"));
+
+    s.client
+        .enqueue_settlement(&s0, &user, &100, &symbol_short!("test"));
+    s.client
+        .enqueue_settlement(&s1, &user, &100, &symbol_short!("test"));
+    s.client
+        .enqueue_settlement(&s2, &user, &100, &symbol_short!("test"));
+    s.client
+        .enqueue_settlement(&s3, &user, &100, &symbol_short!("test"));
+    s.client
+        .enqueue_settlement(&s4, &user, &100, &symbol_short!("test"));
 
     // Process 2: index 0, 1 -> Processed
     s.client.process_next(&2);
@@ -131,8 +149,8 @@ fn test_get_batch_status_mixed() {
 
     let status = s.client.get_batch_status(&0, &4);
     assert_eq!(status.succeeded, 2); // 0, 1
-    assert_eq!(status.failed, 1);    // 2
-    assert_eq!(status.pending, 2);   // 3, 4
+    assert_eq!(status.failed, 1); // 2
+    assert_eq!(status.pending, 2); // 3, 4
     assert_eq!(status.processing, 0);
 }
 
@@ -143,7 +161,115 @@ fn test_get_batch_status_invalid_range() {
     // In our implementation we'll likely return zero counts or error.
     // The requirement says "Accept batch id or range parameters with validation bounds."
     // So we should probably return an Error if the range is invalid.
-    
+
     let result = s.client.try_get_batch_status(&10, &5);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_replay_failed_settlement() {
+    let s = setup();
+    let user = Address::generate(&s.env);
+    let settlement_id = symbol_short!("rf1");
+
+    s.client
+        .enqueue_settlement(&settlement_id, &user, &500, &symbol_short!("retry"));
+    s.client.mark_failed(&settlement_id, &410);
+
+    s.client.replay_settlement(&s.admin, &settlement_id);
+
+    let state = s.client.settlement_state(&settlement_id).unwrap();
+    assert_eq!(state.status, SettlementStatus::Pending);
+    assert_eq!(state.error_code, None);
+    assert_eq!(s.client.queue_depth(), 2);
+    assert_eq!(
+        s.client.oldest_pending_settlement(),
+        Some(settlement_id.clone())
+    );
+}
+
+#[test]
+fn test_replay_rejects_processed_settlement() {
+    let s = setup();
+    let user = Address::generate(&s.env);
+    let settlement_id = symbol_short!("rp1");
+
+    s.client
+        .enqueue_settlement(&settlement_id, &user, &500, &symbol_short!("done"));
+    s.client.process_next(&1);
+
+    let result = s.client.try_replay_settlement(&s.admin, &settlement_id);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_replay_rejects_unauthorized_caller() {
+    let s = setup();
+    let user = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+    let settlement_id = symbol_short!("ru1");
+
+    s.client
+        .enqueue_settlement(&settlement_id, &user, &500, &symbol_short!("fail"));
+    s.client.mark_failed(&settlement_id, &401);
+
+    let result = s.client.try_replay_settlement(&stranger, &settlement_id);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_queue_metrics_empty() {
+    let s = setup();
+
+    assert_eq!(s.client.queue_depth(), 0);
+    assert_eq!(s.client.oldest_pending_settlement(), None);
+
+    let metrics = s.client.queue_metrics();
+    assert_eq!(metrics.depth, 0);
+    assert_eq!(metrics.oldest_pending, None);
+}
+
+#[test]
+fn test_queue_metrics_with_pending_items() {
+    let s = setup();
+    let user = Address::generate(&s.env);
+    let first = symbol_short!("m1");
+    let second = symbol_short!("m2");
+
+    s.client
+        .enqueue_settlement(&first, &user, &100, &symbol_short!("qa"));
+    s.client
+        .enqueue_settlement(&second, &user, &200, &symbol_short!("qb"));
+
+    assert_eq!(s.client.queue_depth(), 2);
+    assert_eq!(s.client.oldest_pending_settlement(), Some(first.clone()));
+
+    let metrics = s.client.queue_metrics();
+    assert_eq!(metrics.depth, 2);
+    assert_eq!(metrics.oldest_pending, Some(first));
+}
+
+#[test]
+fn test_queue_metrics_after_head_advances() {
+    let s = setup();
+    let user = Address::generate(&s.env);
+    let first = symbol_short!("p1");
+    let second = symbol_short!("p2");
+    let third = symbol_short!("p3");
+
+    s.client
+        .enqueue_settlement(&first, &user, &100, &symbol_short!("qa"));
+    s.client
+        .enqueue_settlement(&second, &user, &200, &symbol_short!("qb"));
+    s.client
+        .enqueue_settlement(&third, &user, &300, &symbol_short!("qc"));
+
+    s.client.process_next(&1);
+
+    assert_eq!(s.client.queue_depth(), 2);
+    assert_eq!(s.client.oldest_pending_settlement(), Some(second.clone()));
+
+    let metrics = s.client.queue_metrics();
+    assert_eq!(metrics.depth, 2);
+    assert_eq!(metrics.oldest_pending, Some(second));
 }

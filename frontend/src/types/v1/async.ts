@@ -56,10 +56,16 @@ export interface AsyncActionManager<T, E = Error, Args extends any[] = any[]> {
     /**
      * Executes the async action with the provided arguments
      */
-    run: (...args: Args) => Promise<T | undefined>;
+  run: (...args: Args) => Promise<T | undefined>;
 
-    /**
-     * Resets the state to idle
-     */
-    reset: () => void;
+  /**
+   * Resets the state to idle
+   */
+  reset: () => void;
+
+  /**
+   * Cancels the currently pending action lifecycle so late completion does not
+   * update consumers that no longer care about the result.
+   */
+  cancel: () => void;
 }

@@ -13,6 +13,10 @@ import {
   isBannerDismissed,
   persistBannerDismissal,
 } from "../../services/global-state-store";
+import {
+  resumeQueuedNetworkActions,
+  getQueuedNetworkActionsCount,
+} from "../../services/network-guard-middleware";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,14 @@ export const NetworkGuardBanner = React.memo(
       }
       setIsDismissed(isBannerDismissed(dismissalKey, resolvedIdentity));
     }, [persistDismissal, dismissible, dismissalKey, resolvedIdentity]);
+
+    useEffect(() => {
+      if (isSupported) {
+        resumeQueuedNetworkActions().catch((err) => {
+          console.error("[NetworkGuardBanner] Error resuming queued actions:", err);
+        });
+      }
+    }, [isSupported]);
 
     // Determine if banner should be visible
     const shouldShow = useMemo(() => {
@@ -206,6 +218,12 @@ export const NetworkGuardBanner = React.memo(
                 Unsupported Network
               </h3>
               <p className="text-sm text-yellow-700 mt-1">{displayMessage}</p>
+              {getQueuedNetworkActionsCount() > 0 && (
+                <p className="text-xs text-yellow-600 mt-2 font-medium">
+                  {getQueuedNetworkActionsCount()} action(s) will resume
+                  automatically after network recovery.
+                </p>
+              )}
             </div>
           </div>
 

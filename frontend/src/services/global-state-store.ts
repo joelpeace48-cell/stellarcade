@@ -3,6 +3,7 @@ import type {
   GlobalAction,
   AuthState,
   WalletState,
+  PendingTransactionSnapshot,
 } from "../types/global-state";
 import { ValidationError } from "../types/global-state";
 import type { WalletSessionMeta } from "../types/wallet-session";
@@ -22,6 +23,7 @@ const initialState: GlobalState = {
   wallet: { connected: false },
   flags: {},
   optimisticPatches: {},
+  pendingTransaction: null,
 };
 
 export class GlobalStateStore {
@@ -102,6 +104,10 @@ export class GlobalStateStore {
       }
       case "OPTIMISTIC_CLEAR":
         return { ...state, optimisticPatches: {} };
+      case "PENDING_TX_SET":
+        return { ...state, pendingTransaction: action.payload.snapshot };
+      case "PENDING_TX_CLEAR":
+        return { ...state, pendingTransaction: null };
       case "RESET_ALL":
         return initialState;
       default:
@@ -152,6 +158,7 @@ export class GlobalStateStore {
       const payload = {
         auth: this.state.auth,
         flags: this.state.flags,
+        pendingTransaction: this.state.pendingTransaction,
         storedAt: Date.now(),
       };
       // optimisticPatches intentionally not persisted
@@ -168,11 +175,24 @@ export class GlobalStateStore {
       const parsed = JSON.parse(raw) as {
         auth?: AuthState;
         flags?: Record<string, boolean>;
+        pendingTransaction?: PendingTransactionSnapshot;
+        storedAt?: number;
       };
+
+      // Invalidate pending transaction if older than 30 minutes
+      let pendingTransaction = parsed.pendingTransaction ?? null;
+      if (pendingTransaction && parsed.storedAt) {
+        const ageMs = Date.now() - parsed.storedAt;
+        if (ageMs > 30 * 60 * 1000) {
+          pendingTransaction = null;
+        }
+      }
+
       return {
         ...initialState,
         auth: parsed.auth ?? initialState.auth,
         flags: parsed.flags ?? initialState.flags,
+        pendingTransaction,
       };
     } catch (e) {
       return null;

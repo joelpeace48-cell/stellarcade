@@ -112,6 +112,18 @@ pub struct PrizePoolMetrics {
     pub last_update_ledger: u32,
 }
 
+/// Stable snapshot of admin/token configuration and basic pool metadata.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrizePoolConfigSnapshot {
+    pub admin: Address,
+    pub token: Address,
+    pub available_balance: i128,
+    pub reserved_amount: i128,
+    pub payouts_count: u64,
+    pub last_update_ledger: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -180,6 +192,16 @@ impl PrizePool {
         set_persistent_u64(&env, DataKey::PayoutsCount, 0);
         set_persistent_u32(&env, DataKey::LastUpdateLedger, env.ledger().sequence());
 
+        Ok(())
+    }
+
+    /// Rotate the admin address. Only the current admin may perform this action.
+    pub fn rotate_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+        require_initialized(&env)?;
+        require_admin(&env, &admin)?;
+        new_admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
         Ok(())
     }
 
@@ -428,6 +450,19 @@ impl PrizePool {
             last_update_ledger: get_last_update_ledger(&env),
         })
     }
+
+    /// Returns a stable configuration snapshot for backend consumers and operators.
+    pub fn get_config_snapshot(env: Env) -> Result<PrizePoolConfigSnapshot, Error> {
+        require_initialized(&env)?;
+        Ok(PrizePoolConfigSnapshot {
+            admin: get_admin(&env)?,
+            token: get_token(&env),
+            available_balance: get_available(&env),
+            reserved_amount: get_total_reserved(&env),
+            payouts_count: get_payouts_count(&env),
+            last_update_ledger: get_last_update_ledger(&env),
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -443,16 +478,19 @@ fn require_initialized(env: &Env) -> Result<(), Error> {
 
 /// Verify that `caller` is the stored admin and has signed the invocation.
 fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-    let admin: Address = env
-        .storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .ok_or(Error::NotInitialized)?;
+    let admin = get_admin(env)?;
     caller.require_auth();
     if caller != &admin {
         return Err(Error::NotAuthorized);
     }
     Ok(())
+}
+
+fn get_admin(env: &Env) -> Result<Address, Error> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Admin)
+        .ok_or(Error::NotInitialized)
 }
 
 fn get_token(env: &Env) -> Address {

@@ -17,8 +17,8 @@
 #![allow(unexpected_cfgs)]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient, Address,
-    Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient,
+    Address, Env, Vec,
 };
 
 use stellarcade_random_generator::RandomGeneratorClient;
@@ -29,6 +29,7 @@ use stellarcade_random_generator::RandomGeneratorClient;
 
 pub const PERSISTENT_BUMP_LEDGERS: u32 = 518_400;
 const BASIS_POINTS_DIVISOR: i128 = 10_000;
+pub const PLAYER_HISTORY_LIMIT: u32 = 10;
 
 /// Heads = 0, Tails = 1. RNG result % 2 maps to this.
 pub const HEADS: u32 = 0;
@@ -42,18 +43,18 @@ pub const TAILS: u32 = 1;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized  = 1,
-    NotInitialized      = 2,
-    NotAuthorized       = 3,
-    InvalidAmount       = 4,
-    InvalidSide         = 5,
-    GameAlreadyExists   = 6,
-    GameNotFound        = 7,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    NotAuthorized = 3,
+    InvalidAmount = 4,
+    InvalidSide = 5,
+    GameAlreadyExists = 6,
+    GameNotFound = 7,
     GameAlreadyResolved = 8,
-    RngNotFulfilled     = 9,
-    WagerTooLow         = 10,
-    WagerTooHigh        = 11,
-    Overflow            = 12,
+    RngNotFulfilled = 9,
+    WagerTooLow = 10,
+    WagerTooHigh = 11,
+    Overflow = 12,
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ pub enum DataKey {
     MaxWager,
     HouseEdgeBps,
     Game(u64),
+    PlayerRecentGames(Address),
 }
 
 #[contracttype]
@@ -81,6 +83,15 @@ pub struct Game {
     pub resolved: bool,
     pub won: bool,
     pub payout: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlayerGameHistoryPage {
+    pub total: u32,
+    pub start: u32,
+    pub limit: u32,
+    pub game_ids: Vec<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +146,14 @@ impl CoinFlip {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
-        env.storage().instance().set(&DataKey::RngContract, &rng_contract);
+        env.storage()
+            .instance()
+            .set(&DataKey::RngContract, &rng_contract);
         env.storage().instance().set(&DataKey::MinWager, &min_wager);
         env.storage().instance().set(&DataKey::MaxWager, &max_wager);
-        env.storage().instance().set(&DataKey::HouseEdgeBps, &house_edge_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::HouseEdgeBps, &house_edge_bps);
         Ok(())
     }
 
@@ -179,11 +194,7 @@ impl CoinFlip {
 
         // Transfer tokens from player to this contract
         let token = get_token(&env);
-        TokenClient::new(&env, &token).transfer(
-            &player,
-            env.current_contract_address(),
-            &wager,
-        );
+        TokenClient::new(&env, &token).transfer(&player, env.current_contract_address(), &wager);
 
         // Request randomness: max=2 gives result 0 or 1
         let rng_addr: Address = env.storage().instance().get(&DataKey::RngContract).unwrap();
@@ -203,11 +214,20 @@ impl CoinFlip {
             payout: 0,
         };
         env.storage().persistent().set(&game_key, &game);
-        env.storage()
-            .persistent()
-            .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &game_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+        push_recent_game(&env, &player, game_id);
 
-        BetPlaced { game_id, player, side, wager }.publish(&env);
+        BetPlaced {
+            game_id,
+            player,
+            side,
+            wager,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -241,8 +261,11 @@ impl CoinFlip {
 
         let mut payout = 0i128;
         if won {
-            let house_edge_bps: i128 =
-                env.storage().instance().get(&DataKey::HouseEdgeBps).unwrap();
+            let house_edge_bps: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::HouseEdgeBps)
+                .unwrap();
             // Payout = 2 * wager - house edge on the winnings
             // Winnings = wager (the profit portion). Fee = winnings * edge / 10000.
             let fee = game
@@ -261,9 +284,11 @@ impl CoinFlip {
             game.payout = payout;
             game.resolved = true;
             env.storage().persistent().set(&game_key, &game);
-            env.storage()
-                .persistent()
-                .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &game_key,
+                PERSISTENT_BUMP_LEDGERS,
+                PERSISTENT_BUMP_LEDGERS,
+            );
 
             let token = get_token(&env);
             TokenClient::new(&env, &token).transfer(
@@ -276,9 +301,11 @@ impl CoinFlip {
             game.won = false;
             game.payout = 0;
             env.storage().persistent().set(&game_key, &game);
-            env.storage()
-                .persistent()
-                .extend_ttl(&game_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &game_key,
+                PERSISTENT_BUMP_LEDGERS,
+                PERSISTENT_BUMP_LEDGERS,
+            );
         }
 
         BetResolved {
@@ -299,6 +326,45 @@ impl CoinFlip {
             .get(&DataKey::Game(game_id))
             .ok_or(Error::GameNotFound)
     }
+
+    /// Return a bounded page of recent game ids for a player, ordered newest first.
+    pub fn get_recent_games(
+        env: Env,
+        player: Address,
+        start: u32,
+        limit: u32,
+    ) -> Result<PlayerGameHistoryPage, Error> {
+        require_initialized(&env)?;
+
+        let stored = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Vec<u64>>(&DataKey::PlayerRecentGames(player))
+            .unwrap_or(Vec::new(&env));
+        let total = stored.len();
+        let page_limit = if limit == 0 {
+            PLAYER_HISTORY_LIMIT
+        } else {
+            core::cmp::min(limit, PLAYER_HISTORY_LIMIT)
+        };
+
+        let mut game_ids = Vec::new(&env);
+        let end = core::cmp::min(total, start.saturating_add(page_limit));
+        let mut idx = start;
+        while idx < end {
+            if let Some(game_id) = stored.get(idx) {
+                game_ids.push_back(game_id);
+            }
+            idx += 1;
+        }
+
+        Ok(PlayerGameHistoryPage {
+            total,
+            start,
+            limit: page_limit,
+            game_ids,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +383,32 @@ fn get_token(env: &Env) -> Address {
         .instance()
         .get(&DataKey::Token)
         .expect("CoinFlip: token not set")
+}
+
+fn push_recent_game(env: &Env, player: &Address, game_id: u64) {
+    let key = DataKey::PlayerRecentGames(player.clone());
+    let existing = env
+        .storage()
+        .persistent()
+        .get::<DataKey, Vec<u64>>(&key)
+        .unwrap_or(Vec::new(env));
+
+    let mut updated = Vec::new(env);
+    updated.push_back(game_id);
+
+    let retained = core::cmp::min(existing.len(), PLAYER_HISTORY_LIMIT.saturating_sub(1));
+    let mut idx = 0u32;
+    while idx < retained {
+        if let Some(old_game_id) = existing.get(idx) {
+            updated.push_back(old_game_id);
+        }
+        idx += 1;
+    }
+
+    env.storage().persistent().set(&key, &updated);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
 }
 
 // ---------------------------------------------------------------------------

@@ -62,6 +62,28 @@ describe("OptimisticGameMutationHelper", () => {
     helper.revertIfLatest(key, g);
     expect(cache.get(key)?.data).toEqual({ v: 0 });
   });
+
+  it("captures rollback metadata for failed optimistic mutations", () => {
+    const key = QueryKeys.games.byId("6");
+    cache.set(key, { v: 0 });
+    const g = helper.apply(key, { v: 1 });
+
+    helper.revertIfLatest(key, g, {
+      reason: "submission_failed",
+      message: "Submission failed.",
+      retryable: false,
+      correlationId: "cid-rollback",
+      recordedAt: 123,
+    });
+
+    expect(helper.getRollbackMetadata(key)).toEqual({
+      reason: "submission_failed",
+      message: "Submission failed.",
+      retryable: false,
+      correlationId: "cid-rollback",
+      recordedAt: 123,
+    });
+  });
 });
 
 describe("executeGameActionWithOptimistic", () => {
@@ -93,6 +115,13 @@ describe("executeGameActionWithOptimistic", () => {
 
     expect(result.success).toBe(false);
     expect(cache.get(key)?.data).toEqual({ ok: true });
+    expect(helper.getRollbackMetadata(key)).toEqual({
+      reason: "submission_failed",
+      message: "fail",
+      retryable: false,
+      correlationId: "cid",
+      recordedAt: expect.any(Number),
+    });
   });
 
   it("finalizes on success with buildFinalize", async () => {
@@ -126,6 +155,48 @@ describe("executeGameActionWithOptimistic", () => {
 
     expect(result.success).toBe(true);
     expect(cache.get(key)?.data).toEqual({ phase: "done" });
+    expect(helper.getRollbackMetadata(key)).toBeNull();
+  });
+
+  it("falls back to a safe unknown rollback reason when orchestrator metadata is incomplete", async () => {
+    const cache = new QueryCache();
+    const key = QueryKeys.games.byId("z");
+    cache.set(key, { ok: true });
+    const helper = new OptimisticGameMutationHelper(cache);
+    const orch = new TransactionOrchestrator({
+      now: () => 0,
+      sleep: async () => {},
+      generateCorrelationId: () => "cid-unknown",
+    });
+
+    const result = await executeGameActionWithOptimistic({
+      orchestrator: orch,
+      optimistic: helper,
+      cacheKey: key,
+      optimisticData: { ok: false },
+      request: {
+        operation: "unknown",
+        input: {},
+        submit: async () => {
+          throw {
+            code: "UNKNOWN",
+            domain: "UNKNOWN",
+            severity: "TERMINAL",
+            message: "",
+          };
+        },
+        confirm: async () => ({ status: ConfirmationStatus.CONFIRMED }),
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(helper.getRollbackMetadata(key)).toEqual({
+      reason: "unknown",
+      message: "Action could not be completed.",
+      retryable: false,
+      correlationId: "cid-unknown",
+      recordedAt: expect.any(Number),
+    });
   });
 });
 

@@ -284,3 +284,108 @@ describe("SorobanContractClient — dev contract simulation hooks", () => {
     }
   });
 });
+
+describe("SorobanContractClient — batchRead", () => {
+  afterEach(() => {
+    devClearContractSimResults();
+  });
+
+  it("returns successful batched reads in request order", async () => {
+    const client = makeClient();
+
+    devRegisterContractSimResult(VALID_CONTRACT_ADDR, "first_read", {
+      success: true,
+      data: 7,
+    });
+    devRegisterContractSimResult(VALID_CONTRACT_ADDR, "second_read", {
+      success: true,
+      data: { count: 2 },
+    });
+
+    const batch = await client.batchRead([
+      {
+        contractId: VALID_CONTRACT_ADDR,
+        method: "first_read",
+        mapResult: (value) => Number(value) + 1,
+      },
+      {
+        contractId: VALID_CONTRACT_ADDR,
+        method: "second_read",
+        mapResult: (value) => value as { count: number },
+      },
+    ] as const);
+
+    expect(batch.ordering).toBe("preserved");
+    expect(batch.successCount).toBe(2);
+    expect(batch.failureCount).toBe(0);
+    expect(batch.hasFailures).toBe(false);
+    expect(batch.hasPartialFailures).toBe(false);
+    expect(batch.results[0].index).toBe(0);
+    expect(batch.results[1].index).toBe(1);
+    expect(batch.results[0].request.method).toBe("first_read");
+    expect(batch.results[1].request.method).toBe("second_read");
+    expect(batch.results[0].result.success).toBe(true);
+    expect(batch.results[1].result.success).toBe(true);
+
+    if (batch.results[0].result.success) {
+      expect(batch.results[0].result.data).toBe(8);
+    }
+    if (batch.results[1].result.success) {
+      expect(batch.results[1].result.data.count).toBe(2);
+    }
+  });
+
+  it("normalizes partial failures without obscuring successful reads", async () => {
+    const client = makeClient();
+
+    devRegisterContractSimResult(VALID_CONTRACT_ADDR, "healthy_read", {
+      success: true,
+      data: "ok",
+    });
+    devRegisterContractSimResult(VALID_CONTRACT_ADDR, "broken_read", {
+      success: false,
+      error: new Error("broken") as never,
+    });
+
+    const batch = await client.batchRead([
+      {
+        contractId: VALID_CONTRACT_ADDR,
+        method: "healthy_read",
+      },
+      {
+        contractId: VALID_CONTRACT_ADDR,
+        method: "broken_read",
+      },
+    ] as const);
+
+    expect(batch.successCount).toBe(1);
+    expect(batch.failureCount).toBe(1);
+    expect(batch.hasFailures).toBe(true);
+    expect(batch.hasPartialFailures).toBe(true);
+    expect(batch.results[0].result.success).toBe(true);
+    expect(batch.results[1].result.success).toBe(false);
+
+    if (batch.results[0].result.success) {
+      expect(batch.results[0].result.data).toBe("ok");
+    }
+    if (!batch.results[1].result.success) {
+      expect(batch.results[1].result.error.message).toContain("broken");
+    }
+  });
+
+  it("keeps existing single-read helpers unchanged", async () => {
+    const client = makeClient();
+
+    devRegisterContractSimResult(VALID_CONTRACT_ADDR, "badges_of", {
+      success: true,
+      data: [1n, 2n],
+    });
+
+    const single = await client.badge_badgesOf(VALID_STELLAR_ADDR);
+    expect(single.success).toBe(true);
+
+    if (single.success) {
+      expect(single.data).toEqual([1n, 2n]);
+    }
+  });
+});

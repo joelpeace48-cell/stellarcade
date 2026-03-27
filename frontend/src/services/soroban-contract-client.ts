@@ -46,6 +46,12 @@ import type {
   PoolState,
   WalletProvider,
 } from "../types/contracts";
+import type {
+  ContractReadBatchItemResult,
+  ContractReadBatchResult,
+  ContractReadBatchResultTuple,
+  ContractReadRequest,
+} from "../types/contracts/read";
 import { devPeekContractSimResult } from "./soroban-contract-dev";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -398,6 +404,62 @@ export class SorobanContractClient {
     } catch (err) {
       return { success: false, error: this.mapError(err) };
     }
+  }
+
+  /**
+   * Execute multiple read-only contract calls while preserving request order.
+   *
+   * This helper normalizes partial failures into per-request result envelopes so
+   * callers can render mixed success/error states without opaque batch errors.
+   */
+  async batchRead<const TRequests extends readonly ContractReadRequest<unknown>[]>(
+    requests: TRequests,
+  ): Promise<ContractReadBatchResult<TRequests>> {
+    const results = await Promise.all(
+      requests.map(async (request, index) => {
+        this.validateContractAddress("contractId", request.contractId);
+
+        const simulated = await this.simulate<unknown>(
+          request.contractId,
+          request.method,
+          request.args ?? [],
+          request.options,
+        );
+
+        if (!simulated.success) {
+          return {
+            index,
+            request,
+            result: simulated,
+          } satisfies ContractReadBatchItemResult<unknown>;
+        }
+
+        const mappedData = request.mapResult
+          ? request.mapResult(simulated.data)
+          : (simulated.data as unknown);
+
+        return {
+          index,
+          request,
+          result: {
+            ...simulated,
+            data: mappedData,
+          },
+        } satisfies ContractReadBatchItemResult<unknown>;
+      }),
+    );
+
+    const successCount = results.filter((item) => item.result.success).length;
+    const failureCount = results.length - successCount;
+
+    return {
+      ordering: "preserved",
+      successCount,
+      failureCount,
+      hasFailures: failureCount > 0,
+      hasPartialFailures: successCount > 0 && failureCount > 0,
+      results: results as ContractReadBatchResultTuple<TRequests>,
+    };
   }
 
   // ── Core invocation ──────────────────────────────────────────────────────────

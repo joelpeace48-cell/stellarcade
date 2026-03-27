@@ -157,6 +157,24 @@ pub fn get_proposal(env: Env, proposal_id: u64) -> Result<Proposal, Error>
 
 `Result<Proposal, Error>`
 
+### `get_proposal_summary`
+Return a display-ready proposal snapshot.  Missing proposals return `exists = false` with zeroed numeric fields so downstream callers can distinguish an empty-state from a real proposal.
+
+```rust
+pub fn get_proposal_summary(env: Env, proposal_id: u64) -> ProposalSummary
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `proposal_id` | `u64` |
+
+#### Return Type
+
+`ProposalSummary`
+
 ### `has_voted`
 Check if an address has voted on a proposal
 

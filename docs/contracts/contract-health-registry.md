@@ -84,3 +84,40 @@ pub fn history(env: Env, contract_id: Address) -> Vec<HealthReport>
 
 `Vec<HealthReport>`
 
+### `heartbeat_freshness`
+Return freshness information for a monitored contract heartbeat.
+
+```rust
+pub fn heartbeat_freshness(env: Env, contract_id: Address, stale_after_seconds: u64) -> HeartbeatFreshness
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `contract_id` | `Address` |
+| `stale_after_seconds` | `u64` |
+
+#### Return Type
+
+`HeartbeatFreshness`
+
+### `stale_contracts`
+Return all tracked contracts whose latest heartbeat is older than the threshold.
+
+```rust
+pub fn stale_contracts(env: Env, stale_after_seconds: u64) -> Vec<Address>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `stale_after_seconds` | `u64` |
+
+#### Return Type
+
+`Vec<Address>`
+

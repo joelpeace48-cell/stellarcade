@@ -1,3 +1,4 @@
+import { describe, it, expect, vi } from 'vitest';
 import { TransactionOrchestrator } from '../../src/services/transaction-orchestrator';
 import {
   ConfirmationStatus,
@@ -226,5 +227,60 @@ describe('TransactionOrchestrator', () => {
       TransactionPhase.CONFIRMING,
       TransactionPhase.CONFIRMED,
     ]);
+  });
+
+  it('reports accurate progress snapshots during lifecycle', async () => {
+    const orchestrator = new TransactionOrchestrator({
+      sleep: async () => {},
+      generateCorrelationId: () => 'corr-progress',
+    });
+
+    const snapshots: any[] = [];
+    orchestrator.subscribe(() => {
+      snapshots.push(orchestrator.getProgressSnapshot());
+    });
+
+    await orchestrator.execute({
+      operation: 'progress',
+      input: {},
+      submit: async () => ({ txHash: 'progressTx', data: null }),
+      confirm: async () => ({ status: ConfirmationStatus.CONFIRMED }),
+    });
+
+    const finalSnapshot = orchestrator.getProgressSnapshot();
+    expect(finalSnapshot.currentStep).toBe(TransactionPhase.CONFIRMED);
+    expect(finalSnapshot.completedSteps).toContain(TransactionPhase.VALIDATING);
+    expect(finalSnapshot.completedSteps).toContain(TransactionPhase.SUBMITTING);
+    expect(finalSnapshot.completedSteps).toContain(TransactionPhase.SUBMITTED);
+    expect(finalSnapshot.completedSteps).toContain(TransactionPhase.CONFIRMING);
+    expect(finalSnapshot.completedSteps).not.toContain(TransactionPhase.CONFIRMED);
+    expect(finalSnapshot.lastError).toBeUndefined();
+
+    const submittingSnapshot = snapshots.find((s) => s.currentStep === TransactionPhase.SUBMITTING);
+    expect(submittingSnapshot.completedSteps).toEqual([TransactionPhase.VALIDATING]);
+  });
+
+  it('reports progress snapshots for failed transactions', async () => {
+    const orchestrator = new TransactionOrchestrator({
+      sleep: async () => {},
+    });
+
+    await orchestrator.execute({
+      operation: 'fail-progress',
+      input: {},
+      validateInput: () => ({
+        code: 'API_VALIDATION_ERROR',
+        domain: ErrorDomain.API,
+        severity: ErrorSeverity.TERMINAL,
+        message: 'Bad input',
+      }),
+      submit: async () => ({ txHash: 'never', data: null }),
+      confirm: async () => ({ status: ConfirmationStatus.CONFIRMED }),
+    });
+
+    const snapshot = orchestrator.getProgressSnapshot();
+    expect(snapshot.currentStep).toBe(TransactionPhase.FAILED);
+    expect(snapshot.completedSteps).toEqual([TransactionPhase.VALIDATING]);
+    expect(snapshot.lastError?.orchestratorCode).toBe(OrchestratorErrorCode.INVALID_INPUT);
   });
 });

@@ -8,11 +8,23 @@ export interface QueryPolicy {
   refetchOnInvalidate: boolean;
 }
 
+export type CacheEntryState = "fresh" | "stale" | "refreshing" | "invalid";
+
+export interface CacheStaleWhileRevalidateMeta {
+  state: CacheEntryState;
+  isStale: boolean;
+  isRefreshing: boolean;
+  lastInvalidatedAt?: number;
+  refreshStartedAt?: number;
+  refreshCompletedAt?: number;
+}
+
 export interface CacheEntryMeta {
   createdAt: number;
   updatedAt: number;
   staleAt: number;
   invalidatedAt?: number;
+  swr: CacheStaleWhileRevalidateMeta;
 }
 
 export interface CacheEntry<T> {
@@ -57,4 +69,12 @@ export interface CacheInvalidationEvent extends CacheInvalidationEventBase {
 export interface QueryCacheSnapshot {
   keys: QueryKey[];
   size: number;
+  entries: Array<{
+    key: QueryKey;
+    state: CacheEntryState;
+    staleAt: number;
+    invalidatedAt?: number;
+    refreshStartedAt?: number;
+    refreshCompletedAt?: number;
+  }>;
 }

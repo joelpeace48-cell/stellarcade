@@ -155,3 +155,21 @@ pub fn get_result(env: Env, request_id: u64) -> Result<FulfilledEntry, Error>
 
 `Result<FulfilledEntry, Error>`
 
+### `get_request_status`
+Return the lifecycle status for a request id.
+
+```rust
+pub fn get_request_status(env: Env, request_id: u64) -> Result<RequestStatus, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `request_id` | `u64` |
+
+#### Return Type
+
+`Result<RequestStatus, Error>`
+

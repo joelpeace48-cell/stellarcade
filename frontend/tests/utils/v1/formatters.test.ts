@@ -1,21 +1,20 @@
 /**
- * Unit tests for formatters (amount, address, date).
- *
- * Tests cover normal behavior, edge cases, and failure paths.
+ * Unit tests for formatters (amount, address, date, and locale-aware presets).
  */
 
 import { describe, it, expect } from "vitest";
 import {
-  formatAmount,
-  formatAddress,
-  formatDate,
-  STROOPS_PER_XLM,
-  FALLBACK_AMOUNT,
   FALLBACK_ADDRESS,
+  FALLBACK_AMOUNT,
   FALLBACK_DATE,
+  STROOPS_PER_XLM,
+  formatAddress,
+  formatAmount,
+  formatDate,
+  formatNumberSummary,
+  formatPercentage,
+  formatTokenAmount,
 } from "../../../src/utils/v1/formatters";
-
-// ── formatAmount ─────────────────────────────────────────────────────────────────
 
 describe("formatAmount", () => {
   it("formats stroops as XLM with default precision", () => {
@@ -50,25 +49,13 @@ describe("formatAmount", () => {
     expect(formatAmount(1.5, { fromStroops: false, precision: 1 })).toBe("1.5");
   });
 
-  it("returns fallback for null", () => {
+  it("returns fallback for invalid values", () => {
     expect(formatAmount(null)).toBe(FALLBACK_AMOUNT);
-  });
-
-  it("returns fallback for undefined", () => {
     expect(formatAmount(undefined)).toBe(FALLBACK_AMOUNT);
-  });
-
-  it("returns fallback for negative value", () => {
     expect(formatAmount(-1n)).toBe(FALLBACK_AMOUNT);
     expect(formatAmount(-100)).toBe(FALLBACK_AMOUNT);
-  });
-
-  it("returns fallback for invalid string", () => {
     expect(formatAmount("not-a-number")).toBe(FALLBACK_AMOUNT);
     expect(formatAmount("")).toBe(FALLBACK_AMOUNT);
-  });
-
-  it("returns fallback for NaN/Infinity", () => {
     expect(formatAmount(Number.NaN)).toBe(FALLBACK_AMOUNT);
     expect(formatAmount(Number.POSITIVE_INFINITY)).toBe(FALLBACK_AMOUNT);
   });
@@ -85,21 +72,57 @@ describe("formatAmount", () => {
   });
 });
 
-// ── formatAddress ────────────────────────────────────────────────────────────────
+describe("locale-aware presets", () => {
+  it("formats token amounts with locale-aware grouping", () => {
+    expect(formatTokenAmount(1234.56, { locale: "de-DE", symbol: "XLM" })).toBe(
+      "1.234,56 XLM",
+    );
+  });
+
+  it("supports stroop conversion in the token preset", () => {
+    expect(
+      formatTokenAmount(STROOPS_PER_XLM * 1234, {
+        locale: "en-US",
+        fromStroops: true,
+        symbol: "XLM",
+      }),
+    ).toBe("1,234 XLM");
+  });
+
+  it("formats percentages with explicit locale-aware rounding", () => {
+    expect(formatPercentage(0.125, { locale: "fr-FR" })).toBe("12,5 %");
+  });
+
+  it("formats compact numeric summaries", () => {
+    expect(formatNumberSummary(12_500, { locale: "en-US" })).toBe("12.5K");
+  });
+
+  it("falls back to the default locale for malformed locale identifiers", () => {
+    expect(formatTokenAmount(1234.56, { locale: "bad-locale", symbol: "XLM" })).toBe(
+      "1,234.56 XLM",
+    );
+  });
+
+  it("returns fallback for invalid preset input", () => {
+    expect(formatTokenAmount("not-a-number")).toBe(FALLBACK_AMOUNT);
+    expect(formatPercentage("oops")).toBe(FALLBACK_AMOUNT);
+    expect(formatNumberSummary(undefined)).toBe(FALLBACK_AMOUNT);
+  });
+});
 
 describe("formatAddress", () => {
   const validAddress = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJ";
 
-  it("truncates with default 4…4", () => {
-    expect(formatAddress(validAddress)).toBe("GABC…GHIJ");
+  it("truncates with default 4...4", () => {
+    expect(formatAddress(validAddress)).toBe("GABC...GHIJ");
   });
 
   it("respects startChars and endChars", () => {
     expect(formatAddress(validAddress, { startChars: 6, endChars: 4 })).toBe(
-      "GABCDE…GHIJ",
+      "GABCDE...GHIJ",
     );
     expect(formatAddress(validAddress, { startChars: 2, endChars: 2 })).toBe(
-      "GA…IJ",
+      "GA...IJ",
     );
   });
 
@@ -110,38 +133,26 @@ describe("formatAddress", () => {
   });
 
   it("returns full string when shorter than start+end", () => {
-    const exact = "GABC234567AB"; // 12 chars; with 6+6 we show full
+    const exact = "GABC234567AB";
     expect(formatAddress(exact, { startChars: 6, endChars: 6 })).toBe(exact);
   });
 
-  it("returns fallback for null", () => {
+  it("returns fallback for invalid values", () => {
     expect(formatAddress(null)).toBe(FALLBACK_ADDRESS);
-  });
-
-  it("returns fallback for undefined", () => {
     expect(formatAddress(undefined)).toBe(FALLBACK_ADDRESS);
-  });
-
-  it("returns fallback for empty string", () => {
     expect(formatAddress("")).toBe(FALLBACK_ADDRESS);
-  });
-
-  it("returns fallback for too-short string", () => {
     expect(formatAddress("GAB")).toBe(FALLBACK_ADDRESS);
-  });
-
-  it("returns fallback for invalid characters", () => {
     expect(formatAddress("GABC1234567890!!!")).toBe(FALLBACK_ADDRESS);
     expect(formatAddress("gabcdefghijkl")).toBe(FALLBACK_ADDRESS);
   });
 
   it("trims whitespace before validating", () => {
-    expect(formatAddress(`  ${validAddress}  `)).toBe("GABC…GHIJ");
+    expect(formatAddress(`  ${validAddress}  `)).toBe("GABC...GHIJ");
   });
 
   it("clamps startChars/endChars to 0-20", () => {
     expect(formatAddress(validAddress, { startChars: 100, endChars: 0 })).toBe(
-      validAddress.slice(0, 20) + "…",
+      validAddress.slice(0, 20) + "...",
     );
   });
 
@@ -152,11 +163,9 @@ describe("formatAddress", () => {
   });
 });
 
-// ── formatDate ───────────────────────────────────────────────────────────────────
-
 describe("formatDate", () => {
   const epochMs = 0;
-  const someMs = 1_700_000_000_000; // 2023 Nov 15-ish
+  const someMs = 1_700_000_000_000;
 
   it("formats epoch ms in local by default", () => {
     const out = formatDate(epochMs);
@@ -177,19 +186,10 @@ describe("formatDate", () => {
     expect(out).not.toBe(FALLBACK_DATE);
   });
 
-  it("returns fallback for null", () => {
+  it("returns fallback for invalid values", () => {
     expect(formatDate(null)).toBe(FALLBACK_DATE);
-  });
-
-  it("returns fallback for undefined", () => {
     expect(formatDate(undefined)).toBe(FALLBACK_DATE);
-  });
-
-  it("returns fallback for NaN", () => {
     expect(formatDate(Number.NaN)).toBe(FALLBACK_DATE);
-  });
-
-  it("returns fallback for negative timestamp", () => {
     expect(formatDate(-1)).toBe(FALLBACK_DATE);
   });
 
@@ -211,8 +211,6 @@ describe("formatDate", () => {
     expect(a).toBe(b);
   });
 });
-
-// ── Constants ───────────────────────────────────────────────────────────────────
 
 describe("formatter constants", () => {
   it("STROOPS_PER_XLM is 10^7", () => {

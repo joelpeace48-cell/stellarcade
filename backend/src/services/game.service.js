@@ -21,8 +21,18 @@ const gameService = {
    * @returns {Promise<{items: Array, page: number, pageSize: number, total: number, totalPages: number}>}
    */
   getRecentGames: async (params) => {
-    const { items, total, page, pageSize } = await GameModel.findRecent(params);
+    const requestedPage = Math.max(Number(params.page) || 1, 1);
+    const cursorPage = Math.max(Number(params.cursor) || requestedPage, 1);
+    const effectiveParams = {
+      ...params,
+      page: cursorPage,
+    };
+
+    const { items, total, page, pageSize } = await GameModel.findRecent(effectiveParams);
     const totalPages = Math.ceil(total / pageSize) || 0;
+    const nextPage = page < totalPages ? page + 1 : null;
+    const nextCursor = nextPage ? String(nextPage) : null;
+    const hasNextPage = nextPage !== null;
 
     return {
       items,
@@ -30,6 +40,10 @@ const gameService = {
       pageSize,
       total,
       totalPages,
+      pagination: {
+        nextCursor,
+        hasNextPage,
+      },
     };
   },
 

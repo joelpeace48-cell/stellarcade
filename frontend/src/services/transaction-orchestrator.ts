@@ -17,11 +17,17 @@ import {
   type RetryPolicy,
   type TransactionContext,
   type TransactionOrchestratorState,
+  type TransactionProgressSnapshot,
   type TransactionRequest,
   type TransactionResult,
   type TransactionStateSubscriber,
 } from "../types/transaction-orchestrator";
-import type { Fetcher, OptimisticGameMutationHelper } from "./query-cache-invalidation";
+import type {
+  Fetcher,
+  OptimisticGameMutationHelper,
+  OptimisticRollbackMetadata,
+  OptimisticRollbackReasonCode,
+} from "./query-cache-invalidation";
 
 const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 3,
@@ -31,6 +37,59 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
 
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_CONFIRMATION_TIMEOUT_MS = 30_000;
+
+function mapRollbackReason(
+  code?: OrchestratorErrorCode,
+): OptimisticRollbackReasonCode {
+  switch (code) {
+    case OrchestratorErrorCode.PRECONDITION_FAILED:
+      return "precondition_failed";
+    case OrchestratorErrorCode.INVALID_INPUT:
+      return "invalid_input";
+    case OrchestratorErrorCode.SUBMISSION_FAILED:
+      return "submission_failed";
+    case OrchestratorErrorCode.CONFIRMATION_FAILED:
+      return "confirmation_failed";
+    case OrchestratorErrorCode.TIMEOUT:
+      return "timeout";
+    default:
+      return "unknown";
+  }
+}
+
+function buildRollbackMetadata(
+  result: Awaited<ReturnType<TransactionOrchestrator["execute"]>>,
+): OptimisticRollbackMetadata | undefined {
+  if (result.success) {
+    return undefined;
+  }
+
+  const sanitizedMessage = result.error.message
+    ?.replace(/^Unexpected error:\s*/i, "")
+    .trim();
+  const reason =
+    result.error.code === "UNKNOWN" && !sanitizedMessage
+      ? "unknown"
+      : mapRollbackReason(result.error.orchestratorCode);
+  const fallbackMessages: Record<OptimisticRollbackReasonCode, string> = {
+    precondition_failed: "Action could not start.",
+    invalid_input: "Action input is invalid.",
+    submission_failed: "Transaction submission failed.",
+    confirmation_failed: "Transaction confirmation failed.",
+    timeout: "Transaction confirmation timed out.",
+    unknown: "Action could not be completed.",
+  };
+
+  return {
+    reason,
+    message: sanitizedMessage || fallbackMessages[reason],
+    retryable:
+      result.error.severity === ErrorSeverity.RETRYABLE ||
+      reason === "timeout",
+    correlationId: result.correlationId,
+    recordedAt: Date.now(),
+  };
+}
 
 const ALLOWED_TRANSITIONS: Readonly<
   Record<TransactionPhase, ReadonlyArray<TransactionPhase>>
@@ -70,6 +129,7 @@ interface TransactionOrchestratorOptions {
 export class TransactionOrchestrator {
   private state: TransactionOrchestratorState = {
     phase: TransactionPhase.IDLE,
+    completedSteps: [],
     confirmations: 0,
     attempt: 0,
   };
@@ -93,6 +153,14 @@ export class TransactionOrchestrator {
     return { ...(this.state as TransactionOrchestratorState<TData>) };
   }
 
+  getProgressSnapshot(): TransactionProgressSnapshot {
+    return {
+      currentStep: this.state.phase,
+      completedSteps: [...this.state.completedSteps],
+      lastError: this.state.error,
+    };
+  }
+
   subscribe<TData = unknown>(
     subscriber: TransactionStateSubscriber<TData>,
   ): () => void {
@@ -108,6 +176,7 @@ export class TransactionOrchestrator {
   reset(): void {
     this.state = {
       phase: TransactionPhase.IDLE,
+      completedSteps: [],
       confirmations: 0,
       attempt: 0,
     };
@@ -143,6 +212,7 @@ export class TransactionOrchestrator {
 
     this.state = {
       phase: TransactionPhase.IDLE,
+      completedSteps: [],
       operation: request.operation,
       correlationId,
       confirmations: 0,
@@ -449,10 +519,20 @@ export class TransactionOrchestrator {
       return;
     }
 
+    const previousPhase = this.state.phase;
+    const completedSteps = [...this.state.completedSteps];
+
+    if (phase !== previousPhase && previousPhase !== TransactionPhase.IDLE) {
+      if (!completedSteps.includes(previousPhase)) {
+        completedSteps.push(previousPhase);
+      }
+    }
+
     this.state = {
       ...this.state,
       ...patch,
       phase,
+      completedSteps,
       confirmations: patch.confirmations ?? this.state.confirmations,
       attempt: patch.attempt ?? this.state.attempt,
     };
@@ -561,7 +641,11 @@ export async function executeGameActionWithOptimistic<
   const gen = args.optimistic.apply(args.cacheKey, args.optimisticData);
   const result = await args.orchestrator.execute(args.request);
   if (!result.success) {
-    args.optimistic.revertIfLatest(args.cacheKey, gen);
+    args.optimistic.revertIfLatest(
+      args.cacheKey,
+      gen,
+      buildRollbackMetadata(result),
+    );
     return result;
   }
   const data = result.data as TData;

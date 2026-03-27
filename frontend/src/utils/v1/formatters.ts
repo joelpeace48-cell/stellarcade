@@ -1,27 +1,43 @@
 /**
- * Formatters — amount, address, and date formatting helpers (v1).
+ * Formatters - amount, address, and date formatting helpers (v1).
  *
  * Pure, UI-agnostic utilities for logs, displays, and analytics.
  * All functions validate inputs and return deterministic fallbacks for invalid data.
  *
+ * Locale-aware number presets normalize malformed or unsupported locales back to
+ * the app default (`en-US`) so cards, tables, and status components stay stable.
+ *
  * @module utils/v1/formatters
  */
 
-// ── Constants ───────────────────────────────────────────────────────────────────
+import { resolveIntlLocale } from "../../i18n/provider";
 
 /** Stellar native asset: 1 XLM = 10^7 stroops. */
 export const STROOPS_PER_XLM = 10_000_000;
 
 /** Default fallback when amount cannot be formatted. */
-export const FALLBACK_AMOUNT = "—";
+export const FALLBACK_AMOUNT = "--";
 
 /** Default fallback when address cannot be formatted. */
-export const FALLBACK_ADDRESS = "—";
+export const FALLBACK_ADDRESS = "--";
 
 /** Default fallback when date cannot be formatted. */
-export const FALLBACK_DATE = "—";
+export const FALLBACK_DATE = "--";
 
-// ── Types ───────────────────────────────────────────────────────────────────────
+export const TOKEN_FORMAT_PRESET = {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 4,
+} as const;
+
+export const PERCENTAGE_FORMAT_PRESET = {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+} as const;
+
+export const NUMBER_SUMMARY_FORMAT_PRESET = {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1,
+} as const;
 
 export interface FormatAmountOptions {
   /** Number of decimal places. Default 7 for stroops-derived XLM. */
@@ -39,7 +55,7 @@ export interface FormatAddressOptions {
   startChars?: number;
   /** Characters to show at end. Default 4. */
   endChars?: number;
-  /** Separator between start and end. Default "…". */
+  /** Separator between start and end. Default "...". */
   separator?: string;
 }
 
@@ -56,100 +72,210 @@ export interface FormatDateOptions {
   timeStyle?: "full" | "long" | "medium" | "short";
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────────
+export interface FormatTokenPresetOptions {
+  locale?: string;
+  symbol?: string;
+  fromStroops?: boolean;
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+  fallback?: string;
+}
+
+export interface FormatPercentOptions {
+  locale?: string;
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+  fallback?: string;
+}
+
+export interface FormatNumberSummaryOptions {
+  locale?: string;
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+  fallback?: string;
+}
 
 function isNil(v: unknown): v is null | undefined {
   return v === null || v === undefined;
 }
 
-function isSafeInteger(n: number): boolean {
-  return Number.isInteger(n) && Number.isSafeInteger(n);
+function isSafeInteger(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && Number.isSafeInteger(n);
+}
+
+function clampFractionDigits(value: number | undefined, fallback: number): number {
+  if (!isSafeInteger(value)) return fallback;
+  return value >= 0 && value <= 20 ? value : fallback;
+}
+
+function normalizeNumber(
+  value: bigint | number | string | null | undefined,
+): number | null {
+  if (isNil(value) || value === "") return null;
+
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function formatNumericValue(
+  value: number,
+  locale: string | undefined,
+  options: Intl.NumberFormatOptions,
+): string {
+  const formatter = new Intl.NumberFormat(resolveIntlLocale(locale), options);
+  return formatter.format(value);
 }
 
 /** Stellar public key is 56 chars, base32; we only need to guard length and non-empty. */
 function isAddressLike(s: string): boolean {
-  return typeof s === "string" && s.length >= 12 && s.length <= 64 && /^[A-Z0-9]+$/.test(s);
+  return (
+    typeof s === "string" &&
+    s.length >= 12 &&
+    s.length <= 64 &&
+    /^[A-Z0-9]+$/.test(s)
+  );
 }
-
-// ── Amount ───────────────────────────────────────────────────────────────────────
 
 /**
  * Format a token amount with optional precision and symbol.
  *
  * Accepts stroops (bigint/number) or whole units. Invalid input returns FALLBACK_AMOUNT.
- *
- * @param value - Amount in stroops (if fromStroops true) or whole units
- * @param options - Precision, symbol, fromStroops, locale
- * @returns Formatted string or fallback
- *
- * @example
- * ```ts
- * formatAmount(50_000_000n);                    // "5" (5 XLM, default symbol omitted)
- * formatAmount(50_000_000n, { symbol: "XLM" }); // "5 XLM"
- * formatAmount(12_345_678, { precision: 2 });   // "1.23"
- * formatAmount(null);                           // "—"
- * ```
  */
 export function formatAmount(
   value: bigint | number | string | null | undefined,
   options: FormatAmountOptions = {},
 ): string {
-  if (isNil(value)) return FALLBACK_AMOUNT;
-  if (value === "") return FALLBACK_AMOUNT;
+  if (isNil(value) || value === "") return FALLBACK_AMOUNT;
 
-  const {
-    precision = 7,
-    symbol = "",
-    fromStroops = true,
-    locale,
-  } = options;
+  const { precision = 7, symbol = "", fromStroops = true, locale } = options;
+  const normalized = normalizeNumber(value);
+  if (normalized === null || normalized < 0) return FALLBACK_AMOUNT;
 
-  let num: number;
-  if (typeof value === "bigint") {
-    if (value < 0n) return FALLBACK_AMOUNT;
-    num = fromStroops
-      ? Number(value) / STROOPS_PER_XLM
-      : Number(value);
-  } else if (typeof value === "number") {
-    if (!Number.isFinite(value) || value < 0) return FALLBACK_AMOUNT;
-    num = fromStroops ? value / STROOPS_PER_XLM : value;
-  } else if (typeof value === "string") {
-    const parsed = fromStroops
-      ? Number(value) / STROOPS_PER_XLM
-      : Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) return FALLBACK_AMOUNT;
-    num = parsed;
-  } else {
-    return FALLBACK_AMOUNT;
-  }
-
-  const prec = isSafeInteger(precision) && precision >= 0 && precision <= 20 ? precision : 7;
-  const opts: Intl.NumberFormatOptions = {
+  const num = fromStroops ? normalized / STROOPS_PER_XLM : normalized;
+  const formatted = formatNumericValue(num, locale, {
     minimumFractionDigits: 0,
-    maximumFractionDigits: prec,
-  };
+    maximumFractionDigits: clampFractionDigits(precision, 7),
+  });
 
-  const formatted = new Intl.NumberFormat(locale ?? undefined, opts).format(num);
   return symbol ? `${formatted} ${symbol}`.trim() : formatted;
 }
 
-// ── Address ──────────────────────────────────────────────────────────────────────
+/**
+ * Locale-aware token preset for balances and wager displays.
+ */
+export function formatTokenAmount(
+  value: bigint | number | string | null | undefined,
+  options: FormatTokenPresetOptions = {},
+): string {
+  const {
+    locale,
+    symbol,
+    fromStroops = false,
+    minimumFractionDigits = TOKEN_FORMAT_PRESET.minimumFractionDigits,
+    maximumFractionDigits = TOKEN_FORMAT_PRESET.maximumFractionDigits,
+    fallback = FALLBACK_AMOUNT,
+  } = options;
+
+  const normalized = normalizeNumber(value);
+  if (normalized === null || normalized < 0) {
+    return fallback;
+  }
+
+  const amount = fromStroops ? normalized / STROOPS_PER_XLM : normalized;
+  const formatted = formatNumericValue(amount, locale, {
+    minimumFractionDigits: clampFractionDigits(
+      minimumFractionDigits,
+      TOKEN_FORMAT_PRESET.minimumFractionDigits,
+    ),
+    maximumFractionDigits: clampFractionDigits(
+      maximumFractionDigits,
+      TOKEN_FORMAT_PRESET.maximumFractionDigits,
+    ),
+  });
+
+  return symbol ? `${formatted} ${symbol}`.trim() : formatted;
+}
 
 /**
- * Truncate a wallet address for display (e.g. GABC…xyz1).
+ * Locale-aware percentage preset. Accepts ratio values like `0.125` -> `12.5%`.
+ */
+export function formatPercentage(
+  value: number | string | null | undefined,
+  options: FormatPercentOptions = {},
+): string {
+  const {
+    locale,
+    minimumFractionDigits = PERCENTAGE_FORMAT_PRESET.minimumFractionDigits,
+    maximumFractionDigits = PERCENTAGE_FORMAT_PRESET.maximumFractionDigits,
+    fallback = FALLBACK_AMOUNT,
+  } = options;
+
+  const normalized = normalizeNumber(value);
+  if (normalized === null) {
+    return fallback;
+  }
+
+  return formatNumericValue(normalized, locale, {
+    style: "percent",
+    minimumFractionDigits: clampFractionDigits(
+      minimumFractionDigits,
+      PERCENTAGE_FORMAT_PRESET.minimumFractionDigits,
+    ),
+    maximumFractionDigits: clampFractionDigits(
+      maximumFractionDigits,
+      PERCENTAGE_FORMAT_PRESET.maximumFractionDigits,
+    ),
+  });
+}
+
+/**
+ * Compact numeric preset for tables, badges, and summary metrics.
+ */
+export function formatNumberSummary(
+  value: number | string | bigint | null | undefined,
+  options: FormatNumberSummaryOptions = {},
+): string {
+  const {
+    locale,
+    minimumFractionDigits = NUMBER_SUMMARY_FORMAT_PRESET.minimumFractionDigits,
+    maximumFractionDigits = NUMBER_SUMMARY_FORMAT_PRESET.maximumFractionDigits,
+    fallback = FALLBACK_AMOUNT,
+  } = options;
+
+  const normalized = normalizeNumber(value);
+  if (normalized === null) {
+    return fallback;
+  }
+
+  return formatNumericValue(normalized, locale, {
+    notation: "compact",
+    minimumFractionDigits: clampFractionDigits(
+      minimumFractionDigits,
+      NUMBER_SUMMARY_FORMAT_PRESET.minimumFractionDigits,
+    ),
+    maximumFractionDigits: clampFractionDigits(
+      maximumFractionDigits,
+      NUMBER_SUMMARY_FORMAT_PRESET.maximumFractionDigits,
+    ),
+  });
+}
+
+/**
+ * Truncate a wallet address for display (e.g. GABC...xyz1).
  *
- * Validates address-like shape (length 12–56, base32 chars). Invalid input returns FALLBACK_ADDRESS.
- *
- * @param address - Full Stellar public key or similar address string
- * @param options - startChars, endChars, separator
- * @returns Truncated string or fallback
- *
- * @example
- * ```ts
- * formatAddress("GABC1234567890XYZ");           // "GABC…0XYZ" (4…4)
- * formatAddress("GABC1234567890XYZ", { startChars: 6, endChars: 4 }); // "GABC12…0XYZ"
- * formatAddress("");                            // "—"
- * ```
+ * Validates address-like shape (length 12-56, base32 chars). Invalid input returns FALLBACK_ADDRESS.
  */
 export function formatAddress(
   address: string | null | undefined,
@@ -161,7 +287,7 @@ export function formatAddress(
 
   const startChars = Math.max(0, Math.min(20, options.startChars ?? 4));
   const endChars = Math.max(0, Math.min(20, options.endChars ?? 4));
-  const separator = typeof options.separator === "string" ? options.separator : "…";
+  const separator = typeof options.separator === "string" ? options.separator : "...";
 
   if (trimmed.length <= startChars + endChars) return trimmed;
   const start = trimmed.slice(0, startChars);
@@ -169,30 +295,19 @@ export function formatAddress(
   return `${start}${separator}${end}`;
 }
 
-// ── Date ────────────────────────────────────────────────────────────────────────
-
 /**
  * Format a timestamp for display in local or UTC.
  *
- * Accepts ms or seconds (if value &gt; 1e12, treated as ms). Invalid input returns fallback.
- *
- * @param timestamp - Epoch ms or seconds (number)
- * @param options - useUtc, locale, fallback, dateStyle, timeStyle
- * @returns Formatted date string or fallback
- *
- * @example
- * ```ts
- * formatDate(Date.now());                    // "Feb 22, 2025, 4:30:00 PM" (local)
- * formatDate(Date.now(), { useUtc: true });   // "Feb 22, 2025, 9:30:00 PM" (UTC)
- * formatDate(0);                             // "Jan 1, 1970, ..."
- * formatDate(NaN);                           // "—"
- * ```
+ * Accepts ms or seconds (if value < 1e12, treated as seconds). Invalid input returns fallback.
  */
 export function formatDate(
   timestamp: number | null | undefined,
   options: FormatDateOptions = {},
 ): string {
-  if (isNil(timestamp) || typeof timestamp !== "number") return options.fallback ?? FALLBACK_DATE;
+  if (isNil(timestamp) || typeof timestamp !== "number") {
+    return options.fallback ?? FALLBACK_DATE;
+  }
+
   let ms = timestamp;
   if (Number.isFinite(ms) && ms > 0 && ms < 1e12) ms = ms * 1000;
   if (!Number.isFinite(ms) || ms < 0) return options.fallback ?? FALLBACK_DATE;
@@ -204,7 +319,7 @@ export function formatDate(
       timeZone: options.useUtc ? "UTC" : undefined,
     };
     if (options.timeStyle) opts.timeStyle = options.timeStyle;
-    const formatter = new Intl.DateTimeFormat(options.locale ?? undefined, opts);
+    const formatter = new Intl.DateTimeFormat(resolveIntlLocale(options.locale), opts);
     return formatter.format(ms);
   } catch {
     return fallback;

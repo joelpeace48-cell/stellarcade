@@ -189,3 +189,22 @@ pub fn get_reward_bps(env: Env) -> Result<u32, Error>
 
 `Result<u32, Error>`
 
+### `preview_referral_reward`
+Preview reward outcomes for a referral event without mutating storage.
+
+```rust
+pub fn preview_referral_reward(env: Env, user: Address, amount: i128) -> Result<ReferralRewardPreview, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `user` | `Address` |
+| `amount` | `i128` |
+
+#### Return Type
+
+`Result<ReferralRewardPreview, Error>`
+

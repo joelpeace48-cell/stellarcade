@@ -5,7 +5,7 @@
 export type Network = "TESTNET" | "PUBLIC" | string;
 
 export interface WalletProviderInfo {
-  id: string; // provider identifier (e.g. 'freighter', 'solflare')
+  id: string;
   name: string;
   version?: string;
 }
@@ -14,8 +14,8 @@ export interface WalletSessionMeta {
   provider: WalletProviderInfo;
   address: string;
   network: Network;
-  connectedAt: number; // epoch ms
-  lastActiveAt?: number; // epoch ms
+  connectedAt: number;
+  lastActiveAt?: number;
 }
 
 export enum WalletSessionState {
@@ -25,9 +25,43 @@ export enum WalletSessionState {
   RECONNECTING = "RECONNECTING",
 }
 
-// Domain errors
+export enum WalletSessionRefreshPhase {
+  IDLE = "IDLE",
+  REFRESHING = "REFRESHING",
+  BACKING_OFF = "BACKING_OFF",
+  FAILED = "FAILED",
+}
+
+export type WalletSessionRefreshTrigger = "manual" | "silent";
+
+/**
+ * Refresh instrumentation stays separate from the primary session state so
+ * simple consumers can keep using `WalletSessionState`, while UI/debugging
+ * surfaces can inspect retry progress and deterministic backoff metadata.
+ */
+export interface WalletSessionRefreshState {
+  phase: WalletSessionRefreshPhase;
+  trigger: WalletSessionRefreshTrigger;
+  attempt: number;
+  maxAttempts: number;
+  startedAt?: number;
+  nextRetryAt?: number;
+  backoffMs?: number;
+  lastSucceededAt?: number;
+  lastFailedAt?: number;
+  terminal: boolean;
+  errorCode?: string;
+}
+
+export interface WalletSessionRefreshPolicy {
+  maxAttempts?: number;
+  initialBackoffMs?: number;
+  backoffMultiplier?: number;
+}
+
 export class WalletSessionError extends Error {
   public code: string;
+
   constructor(code: string, message?: string) {
     super(message ?? code);
     this.code = code;
@@ -60,7 +94,9 @@ export class ValidationError extends WalletSessionError {
 }
 
 export interface WalletSessionOptions {
-  storageKey?: string; // override localStorage key
+  storageKey?: string;
   supportedNetworks?: Network[];
-  sessionExpiryMs?: number; // how long a stored session remains valid
+  sessionExpiryMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }

@@ -59,6 +59,26 @@ export function transitionState<T, E = Error>(
 }
 
 /**
+ * Returns true when a pending async execution is still allowed to update
+ * consumer state.
+ */
+export function canCommitAsyncAction(
+    executionId: number,
+    latestExecutionId: number,
+    isMounted: boolean,
+): boolean {
+    return isMounted && executionId === latestExecutionId;
+}
+
+/**
+ * Cancels in-flight lifecycle bookkeeping by advancing the execution cursor.
+ * The underlying async work is not aborted; only late UI updates are ignored.
+ */
+export function cancelAsyncAction(latestExecutionId: number): number {
+    return latestExecutionId + 1;
+}
+
+/**
  * Guards against non-existent dependencies or invalid state.
  */
 export function guardDependency<T>(dependency: T | undefined | null, name: string): T {

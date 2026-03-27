@@ -140,4 +140,87 @@ describe("useAsyncAction Hook", () => {
     expect(result.current.status).toBe("idle");
     expect(result.current.data).toBeNull();
   });
+
+  it("does not update state after unmount while an action is pending", async () => {
+    let resolveAction!: (value: string) => void;
+    const action = vi.fn().mockImplementation(
+      () => new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const onSuccess = vi.fn();
+
+    const { result, unmount } = renderHook(() =>
+      useAsyncAction(action, { onSuccess }),
+    );
+
+    let pendingPromise!: Promise<string | undefined>;
+    act(() => {
+      pendingPromise = result.current.run();
+    });
+    expect(result.current.status).toBe("loading");
+
+    unmount();
+    await act(async () => {
+      resolveAction("late success");
+      await pendingPromise;
+    });
+
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("supports explicit cancellation without swallowing the underlying result", async () => {
+    let resolveAction!: (value: string) => void;
+    const action = vi.fn().mockImplementation(
+      () => new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    const onSuccess = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAsyncAction(action, { onSuccess }),
+    );
+
+    let pendingPromise!: Promise<string | undefined>;
+    act(() => {
+      pendingPromise = result.current.run();
+    });
+    expect(result.current.status).toBe("loading");
+
+    act(() => {
+      result.current.cancel();
+    });
+
+    expect(result.current.status).toBe("idle");
+
+    let resolvedValue: string | undefined;
+    await act(async () => {
+      resolveAction("completed after cancel");
+      resolvedValue = await pendingPromise;
+    });
+
+    expect(resolvedValue).toBe("completed after cancel");
+    expect(result.current.status).toBe("idle");
+    expect(result.current.data).toBeNull();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("keeps normal success behavior unchanged when not cancelled", async () => {
+    const action = vi.fn().mockResolvedValue("steady success");
+    const onSuccess = vi.fn();
+    const { result } = renderHook(() =>
+      useAsyncAction(action, { onSuccess }),
+    );
+
+    let resolvedValue: string | undefined;
+    await act(async () => {
+      resolvedValue = await result.current.run();
+    });
+
+    expect(resolvedValue).toBe("steady success");
+    expect(result.current.status).toBe("success");
+    expect(result.current.data).toBe("steady success");
+    expect(onSuccess).toHaveBeenCalledWith("steady success");
+  });
 });

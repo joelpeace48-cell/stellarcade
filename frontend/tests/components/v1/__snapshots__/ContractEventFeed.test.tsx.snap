@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`ContractEventFeed — snapshot > matches stable header snapshot 1`] = `
+exports[`ContractEventFeed - snapshot > matches stable header snapshot 1`] = `
 <header
   class="cef__header"
 >
@@ -39,7 +39,7 @@ exports[`ContractEventFeed — snapshot > matches stable header snapshot 1`] = `
       data-testid="contract-event-feed-toggle"
       type="button"
     >
-      ⏸ Pause
+      Pause
     </button>
     <button
       aria-label="Clear all events"

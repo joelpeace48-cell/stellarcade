@@ -11,6 +11,56 @@ const DevContractCallSimulatorPanel = import.meta.env.DEV
     )
   : undefined;
 
+interface RouteErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface RouteErrorBoundaryState {
+  hasError: boolean;
+}
+
+class RouteErrorBoundary extends React.Component<
+  RouteErrorBoundaryProps,
+  RouteErrorBoundaryState
+> {
+  state: RouteErrorBoundaryState = {
+    hasError: false,
+  };
+
+  static getDerivedStateFromError(): RouteErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  private handleRetry = () => {
+    this.setState({ hasError: false });
+  };
+
+  private handleReload = () => {
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="route-fallback" role="alert" aria-live="assertive">
+          <h2>Lobby temporarily unavailable</h2>
+          <p>Reload the route to try fetching the latest game state again.</p>
+          <div className="route-fallback-actions">
+            <button type="button" onClick={this.handleRetry}>
+              Try Again
+            </button>
+            <button type="button" onClick={this.handleReload}>
+              Reload
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const AppContent: React.FC = () => {
   const { t } = useI18n();
 
@@ -29,7 +79,9 @@ const AppContent: React.FC = () => {
       </header>
       
       <main className="app-content">
-        <GameLobby />
+        <RouteErrorBoundary>
+          <GameLobby />
+        </RouteErrorBoundary>
       </main>
 
       <footer className="app-footer">

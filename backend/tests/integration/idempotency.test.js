@@ -13,6 +13,25 @@ jest.mock('../../src/config/redis', () => {
     return { client: mockClient, connectPromise: Promise.resolve() };
 });
 
+jest.mock('../../src/services/audit.service', () => {
+    const normalizeValue = (value) => {
+        if (Array.isArray(value)) return value.map(normalizeValue);
+        if (value && typeof value === 'object') {
+            return Object.keys(value).sort().reduce((acc, key) => {
+                acc[key] = normalizeValue(value[key]);
+                return acc;
+            }, {});
+        }
+        return value;
+    };
+
+    return {
+        log: jest.fn().mockResolvedValue(undefined),
+        normalizeValue,
+        redactSensitive: (value) => value,
+    };
+});
+
 // Mock Auth Middleware to bypass JWT checks and provide req.user
 jest.mock('../../src/middleware/auth.middleware', () => (req, res, next) => {
     req.user = { id: 1 };
@@ -20,6 +39,7 @@ jest.mock('../../src/middleware/auth.middleware', () => (req, res, next) => {
 });
 
 const { client } = require('../../src/config/redis');
+const audit = require('../../src/services/audit.service');
 const walletRouter = require('../../src/routes/wallet.routes');
 
 // Mock wallet controller to isolate middleware testing
@@ -64,7 +84,11 @@ describe('Idempotency Middleware Integration Tests', () => {
 
     test('should return cached response for a replayed request', async () => {
         const crypto = require('crypto');
-        const bodyHash = crypto.createHash('sha256').update(JSON.stringify({ amount: 100 })).digest('hex');
+        const bodyHash = crypto.createHash('sha256').update(JSON.stringify({
+            body: { amount: 100 },
+            method: 'POST',
+            path: '/api/wallet/deposit',
+        })).digest('hex');
 
         client.get.mockResolvedValue(JSON.stringify({
             requestHash: bodyHash,
@@ -81,6 +105,10 @@ describe('Idempotency Middleware Integration Tests', () => {
         expect(res.body.fromCache).toBe(true);
         // Controller should NOT be called
         expect(walletController.deposit).not.toHaveBeenCalled();
+        expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+            action: 'idempotency.replay',
+            outcome: 'success',
+        }));
     });
 
     test('should return 409 Conflict if same key is used with a different body', async () => {
@@ -97,6 +125,59 @@ describe('Idempotency Middleware Integration Tests', () => {
 
         expect(res.status).toBe(409);
         expect(res.body.error).toBe('Idempotency Conflict');
+        expect(walletController.deposit).not.toHaveBeenCalled();
+        expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
+            action: 'idempotency.conflict',
+            outcome: 'failure',
+        }));
+    });
+
+    test('should persist normalized fingerprint metadata for semantically equivalent payloads', async () => {
+        client.get.mockResolvedValue(null);
+
+        await request(app)
+            .post('/api/wallet/deposit')
+            .set('Idempotency-Key', 'normalized-key')
+            .send({ amount: 100, memo: 'top-up' });
+
+        const cachedPayload = JSON.parse(client.setEx.mock.calls[0][2]);
+        const expectedFingerprint = require('crypto')
+            .createHash('sha256')
+            .update(JSON.stringify({
+                body: { amount: 100, memo: 'top-up' },
+                method: 'POST',
+                path: '/api/wallet/deposit',
+            }))
+            .digest('hex');
+
+        expect(cachedPayload.requestFingerprint).toBe(expectedFingerprint);
+        expect(cachedPayload.requestHash).toBe(expectedFingerprint);
+    });
+
+    test('should treat reordered object keys as the same fingerprint', async () => {
+        const fingerprint = require('crypto')
+            .createHash('sha256')
+            .update(JSON.stringify({
+                body: { amount: 100, meta: { currency: 'XLM', network: 'testnet' } },
+                method: 'POST',
+                path: '/api/wallet/deposit',
+            }))
+            .digest('hex');
+
+        client.get.mockResolvedValue(JSON.stringify({
+            requestHash: fingerprint,
+            requestFingerprint: fingerprint,
+            statusCode: 200,
+            body: { success: true, replayed: true },
+        }));
+
+        const res = await request(app)
+            .post('/api/wallet/deposit')
+            .set('Idempotency-Key', 'normalized-hit')
+            .send({ meta: { network: 'testnet', currency: 'XLM' }, amount: 100 });
+
+        expect(res.status).toBe(200);
+        expect(res.body.replayed).toBe(true);
         expect(walletController.deposit).not.toHaveBeenCalled();
     });
 

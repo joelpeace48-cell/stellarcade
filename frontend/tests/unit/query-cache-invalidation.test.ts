@@ -17,10 +17,12 @@ describe("QueryCache", () => {
 
     const entry1 = cache.set(key, { name: "n" }, { staleTimeMs: 1000, refetchOnInvalidate: false });
     expect(entry1.meta.createdAt).toBe(Date.now());
+    expect(cache.get(key)?.meta.swr.state).toBe("fresh");
     expect(cache.isStale(key)).toBe(false);
 
     vi.setSystemTime(Date.now() + 1001);
     expect(cache.isStale(key)).toBe(true);
+    expect(cache.get(key)?.meta.swr.state).toBe("stale");
   });
 
   it("getOrFetch does not mutate cache on fetch error", async () => {
@@ -47,12 +49,51 @@ describe("QueryCache", () => {
     cache.registerFetcher(key, fetcher);
 
     cache.invalidate(key, { at: Date.now(), reason: "manual" });
+    expect(cache.get(key)?.meta.swr.state).toBe("refreshing");
 
     await vi.runAllTimersAsync();
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     const updated = cache.get<{ v: number }>(key);
     expect(updated?.data.v).toBe(2);
+    expect(updated?.meta.swr.state).toBe("fresh");
+    expect(updated?.meta.invalidatedAt).toBeUndefined();
+  });
+
+  it("tracks invalid to refreshing to fresh transitions", async () => {
+    const cache = new QueryCache();
+    const key = QueryKeys.games.byId("7");
+
+    cache.set(key, { id: 7 }, { staleTimeMs: 60_000, refetchOnInvalidate: true });
+
+    let release!: (value: { id: number }) => void;
+    cache.registerFetcher(key, vi.fn(() => new Promise((resolve) => {
+      release = resolve;
+    })));
+
+    cache.invalidate(key, { at: Date.now(), reason: "manual" });
+    expect(cache.get(key)?.meta.swr.state).toBe("refreshing");
+
+    await release({ id: 8 });
+    await vi.runAllTimersAsync();
+
+    const refreshed = cache.get<{ id: number }>(key);
+    expect(refreshed?.data.id).toBe(8);
+    expect(refreshed?.meta.swr.state).toBe("fresh");
+    expect(refreshed?.meta.swr.refreshStartedAt).toBeDefined();
+    expect(refreshed?.meta.swr.refreshCompletedAt).toBeDefined();
+  });
+
+  it("keeps backward-compatible invalidation semantics for callers ignoring metadata", () => {
+    const cache = new QueryCache();
+    const key = QueryKeys.balances.account("GAAA");
+
+    cache.set(key, { amount: 1 }, { staleTimeMs: 60_000, refetchOnInvalidate: false });
+    cache.invalidate(key, { at: Date.now(), reason: "manual" });
+
+    expect(cache.isStale(key)).toBe(true);
+    expect(cache.get(key)?.data).toEqual({ amount: 1 });
+    expect(cache.get(key)?.meta.swr.state).toBe("invalid");
   });
 });
 

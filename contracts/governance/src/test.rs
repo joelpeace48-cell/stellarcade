@@ -67,7 +67,9 @@ fn test_init_rejects_reinit() {
     env.mock_all_auths();
 
     let token = Address::generate(&env);
-    let result = s.gov_client.try_init(&s.admin, &token, &100, &50, &1000, &6000);
+    let result = s
+        .gov_client
+        .try_init(&s.admin, &token, &100, &50, &1000, &6000);
     assert!(result.is_err());
 }
 
@@ -92,6 +94,100 @@ fn test_propose_creates_proposal() {
     assert_eq!(proposal.state, STATE_ACTIVE);
     assert_eq!(proposal.for_votes, 0);
     assert_eq!(proposal.against_votes, 0);
+}
+
+#[test]
+fn test_summary_for_active_proposal() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let proposer = Address::generate(&env);
+    let payload = hash(&env, b"action:active_summary");
+
+    s.gov_client.propose(&proposer, &7u64, &payload);
+
+    let proposal = s.gov_client.get_proposal(&7u64);
+    let summary = s.gov_client.get_proposal_summary(&7u64);
+    assert!(summary.exists);
+    assert_eq!(summary.state, STATE_ACTIVE);
+    assert_eq!(summary.for_votes, 0);
+    assert_eq!(summary.against_votes, 0);
+    assert_eq!(summary.total_votes, 0);
+    assert_eq!(summary.quorum_votes_required, 1);
+    assert_eq!(summary.quorum_votes_remaining, 1);
+    assert_eq!(summary.quorum_progress_bps, 0);
+    assert!(!summary.quorum_reached);
+    assert_eq!(summary.execution_eta, proposal.end_ledger + 50);
+}
+
+#[test]
+fn test_summary_for_succeeded_proposal_before_queue() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let proposer = Address::generate(&env);
+    let payload = hash(&env, b"action:succeeded_summary");
+
+    s.gov_client.propose(&proposer, &8u64, &payload);
+    s.gov_client.vote(&8u64, &s.voter1, &true);
+    s.gov_client.vote(&8u64, &s.voter2, &true);
+
+    let proposal = s.gov_client.get_proposal(&8u64);
+
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
+
+    let summary = s.gov_client.get_proposal_summary(&8u64);
+    assert!(summary.exists);
+    assert_eq!(summary.state, STATE_SUCCEEDED);
+    assert_eq!(summary.total_votes, 1500);
+    assert_eq!(summary.quorum_votes_required, 1);
+    assert_eq!(summary.quorum_votes_remaining, 0);
+    assert_eq!(summary.quorum_progress_bps, 10_000);
+    assert!(summary.quorum_reached);
+    assert_eq!(summary.execution_eta, proposal.end_ledger + 50);
+}
+
+#[test]
+fn test_summary_for_queued_proposal() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let proposer = Address::generate(&env);
+    let payload = hash(&env, b"action:queued_summary");
+
+    s.gov_client.propose(&proposer, &9u64, &payload);
+    s.gov_client.vote(&9u64, &s.voter1, &true);
+    s.gov_client.vote(&9u64, &s.voter2, &true);
+
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
+    s.gov_client.queue(&9u64);
+
+    let proposal = s.gov_client.get_proposal(&9u64);
+    let summary = s.gov_client.get_proposal_summary(&9u64);
+    assert!(summary.exists);
+    assert_eq!(summary.state, STATE_QUEUED);
+    assert_eq!(summary.execution_eta, proposal.eta);
+    assert_eq!(summary.total_votes, 1500);
+}
+
+#[test]
+fn test_summary_for_missing_proposal() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let summary = s.gov_client.get_proposal_summary(&404u64);
+    assert!(!summary.exists);
+    assert_eq!(summary.proposal_id, 404);
+    assert_eq!(summary.state, STATE_PENDING);
+    assert_eq!(summary.total_votes, 0);
+    assert_eq!(summary.quorum_votes_required, 0);
+    assert_eq!(summary.execution_eta, 0);
 }
 
 #[test]
@@ -191,7 +287,8 @@ fn test_vote_after_period_rejected() {
     s.gov_client.propose(&proposer, &1u64, &payload);
 
     // Advance ledger past voting period (100 ledgers)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
 
     let result = s.gov_client.try_vote(&1u64, &s.voter1, &true);
     assert!(result.is_err());
@@ -216,7 +313,8 @@ fn test_queue_succeeded_proposal() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
 
     s.gov_client.queue(&1u64);
 
@@ -237,11 +335,12 @@ fn test_queue_defeated_proposal() {
 
     // Vote with more against than for (doesn't meet 60% threshold)
     s.gov_client.vote(&1u64, &s.voter1, &false); // 1000 against
-    s.gov_client.vote(&1u64, &s.voter2, &true);  // 500 for
-    // for_votes_bps = 500 * 10000 / 1500 = 3333 bps < 6000 threshold
+    s.gov_client.vote(&1u64, &s.voter2, &true); // 500 for
+                                                // for_votes_bps = 500 * 10000 / 1500 = 3333 bps < 6000 threshold
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
 
     s.gov_client.queue(&1u64);
 
@@ -284,11 +383,13 @@ fn test_execute_queued_proposal() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Advance past timelock (50 ledgers)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 51);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 51);
 
     s.gov_client.execute(&1u64, &payload);
 
@@ -309,7 +410,8 @@ fn test_execute_before_timelock_rejected() {
     s.gov_client.vote(&1u64, &s.voter1, &true);
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Try to execute before timelock expires
@@ -330,10 +432,12 @@ fn test_execute_wrong_payload_rejected() {
     s.gov_client.vote(&1u64, &s.voter1, &true);
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
-    env.ledger().set_sequence_number(env.ledger().sequence() + 51);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 51);
 
     // Try with wrong payload hash
     let wrong_payload = hash(&env, b"action:wrong");
@@ -395,7 +499,8 @@ fn test_cancel_stale_queued_proposal() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period (100 ledgers)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     let proposal = s.gov_client.get_proposal(&1u64);
@@ -405,7 +510,8 @@ fn test_cancel_stale_queued_proposal() {
     // Execution window = timelock_delay * 2 = 50 * 2 = 100 ledgers
     // Advance past eta + execution_window (eta + 100)
     // We need to advance: (current + 51 to reach eta) + 100 = current + 151
-    env.ledger().set_sequence_number(env.ledger().sequence() + 151);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 151);
 
     // Anyone can cancel stale (no auth needed for this test since we mock all)
     s.gov_client.cancel_stale(&1u64);
@@ -429,12 +535,14 @@ fn test_cancel_stale_premature_rejected() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Try to cancel before execution window expires
     // Only advance 50 ledgers (half of execution window)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 50);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 50);
 
     let result = s.gov_client.try_cancel_stale(&1u64);
     assert!(result.is_err());
@@ -474,11 +582,13 @@ fn test_cancel_stale_executed_proposal_rejected() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Advance past timelock
-    env.ledger().set_sequence_number(env.ledger().sequence() + 51);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 51);
     s.gov_client.execute(&1u64, &payload);
 
     // Try to cancel stale after execution
@@ -519,11 +629,13 @@ fn test_execute_after_cancel_stale_rejected() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Advance past execution window
-    env.ledger().set_sequence_number(env.ledger().sequence() + 151);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 151);
     s.gov_client.cancel_stale(&1u64);
 
     // Try to execute after cancellation
@@ -546,7 +658,8 @@ fn test_cancel_stale_defeated_proposal_rejected() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // Advance past voting period
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
 
     // Proposal should be defeated
@@ -580,12 +693,14 @@ fn test_full_governance_lifecycle() {
     s.gov_client.vote(&1u64, &s.voter2, &true);
 
     // 3. Queue (after voting period)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 101);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 101);
     s.gov_client.queue(&1u64);
     assert_eq!(s.gov_client.get_proposal(&1u64).state, STATE_QUEUED);
 
     // 4. Execute (after timelock)
-    env.ledger().set_sequence_number(env.ledger().sequence() + 51);
+    env.ledger()
+        .set_sequence_number(env.ledger().sequence() + 51);
     s.gov_client.execute(&1u64, &payload);
     assert_eq!(s.gov_client.get_proposal(&1u64).state, STATE_EXECUTED);
 }
