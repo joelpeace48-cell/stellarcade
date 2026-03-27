@@ -107,7 +107,7 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
                         onClick={() => !isItemDisabled && action.onClick()}
                         disabled={isItemDisabled}
                         onKeyDown={(e) => handleKeyDown(e, index)}
-                        tabIndex={index === 0 ? 0 : -1}
+                        tabIndex={0}
                         data-testid={`${testId}-item-${action.id}`}
                         aria-busy={action.isLoading}
                         title={action.label}

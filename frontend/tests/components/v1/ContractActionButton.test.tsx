@@ -1,4 +1,3 @@
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ContractActionButton } from '../../../src/components/v1/ContractActionButton';
 
@@ -23,7 +22,7 @@ describe('ContractActionButton', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
   });
 
-  it('blocks when wallet is not connected', () => {
+  it('blocks when wallet is not connected and exposes the precondition description', () => {
     const action = vi.fn().mockResolvedValue({});
 
     render(
@@ -37,6 +36,10 @@ describe('ContractActionButton', () => {
 
     expect(screen.getByTestId('contract-action-button')).toBeDisabled();
     expect(screen.getByTestId('contract-action-button-precondition')).toHaveTextContent('Connect wallet');
+    expect(screen.getByTestId('contract-action-button')).toHaveAttribute(
+      'aria-describedby',
+      'contract-action-button-precondition',
+    );
   });
 
   it('blocks duplicate triggers while in-flight', async () => {
@@ -84,5 +87,27 @@ describe('ContractActionButton', () => {
 
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('contract-action-button-error')).toBeInTheDocument();
+    expect(screen.getByTestId('contract-action-button')).toHaveAttribute(
+      'aria-describedby',
+      'contract-action-button-error-region',
+    );
+  });
+
+  it('is keyboard focusable as a native button', () => {
+    const action = vi.fn().mockResolvedValue({});
+
+    render(
+      <ContractActionButton
+        label="Execute"
+        action={action}
+        walletConnected={true}
+        networkSupported={true}
+      />,
+    );
+
+    const button = screen.getByTestId('contract-action-button');
+    button.focus();
+
+    expect(button).toHaveFocus();
   });
 });

@@ -1,12 +1,11 @@
 /**
- * SessionTimeoutModal — timer and interaction tests.
+ * SessionTimeoutModal -- timer and interaction tests.
  */
 
 import { SessionTimeoutModal } from '@/components/v1/SessionTimeoutModal';
 import WalletSessionService from '@/services/wallet-session-service';
 import { WalletSessionState } from '@/types/wallet-session';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-
 
 const meta = {
   provider: { id: 't', name: 'Test' },
@@ -49,7 +48,7 @@ describe('SessionTimeoutModal', () => {
   }
 
   it('shows warning when remaining within threshold', async () => {
-    const { svc } = mockConnectedService(60_000); // below default 5min warn? 60s is below 300s
+    const { svc } = mockConnectedService(60_000);
     render(
       <SessionTimeoutModal
         sessionService={svc}
@@ -62,6 +61,43 @@ describe('SessionTimeoutModal', () => {
       expect(screen.getByTestId('session-timeout-modal')).toBeInTheDocument();
     });
     expect(screen.getByText(/Session expiring soon/i)).toBeInTheDocument();
+  });
+
+  it('moves focus to the primary action when the warning opens', async () => {
+    const { svc } = mockConnectedService(30_000);
+    render(
+      <SessionTimeoutModal
+        sessionService={svc}
+        warnBeforeExpiryMs={120_000}
+        pollIntervalMs={500}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('session-timeout-modal-extend')).toHaveFocus(),
+    );
+  });
+
+  it('traps tab navigation inside the warning actions', async () => {
+    const { svc } = mockConnectedService(30_000);
+    render(
+      <SessionTimeoutModal
+        sessionService={svc}
+        warnBeforeExpiryMs={120_000}
+        pollIntervalMs={500}
+      />,
+    );
+
+    const extendButton = await screen.findByTestId('session-timeout-modal-extend');
+    const dismissButton = screen.getByTestId('session-timeout-modal-dismiss');
+
+    dismissButton.focus();
+    fireEvent.keyDown(dismissButton, { key: 'Tab' });
+    expect(extendButton).toHaveFocus();
+
+    extendButton.focus();
+    fireEvent.keyDown(extendButton, { key: 'Tab', shiftKey: true });
+    expect(dismissButton).toHaveFocus();
   });
 
   it('calls extendPersistedSession when Extend is clicked', async () => {
@@ -95,6 +131,24 @@ describe('SessionTimeoutModal', () => {
       expect(screen.getByTestId('session-timeout-modal-dismiss')).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByTestId('session-timeout-modal-dismiss'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('session-timeout-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  it('allows Escape to dismiss the warning dialog', async () => {
+    const { svc } = mockConnectedService(20_000);
+    render(
+      <SessionTimeoutModal
+        sessionService={svc}
+        warnBeforeExpiryMs={120_000}
+        pollIntervalMs={500}
+      />,
+    );
+
+    const dismissButton = await screen.findByTestId('session-timeout-modal-dismiss');
+    fireEvent.keyDown(dismissButton, { key: 'Escape' });
+
     await waitFor(() => {
       expect(screen.queryByTestId('session-timeout-modal')).not.toBeInTheDocument();
     });

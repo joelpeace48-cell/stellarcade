@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { AppError } from '../../types/errors';
 import { toAppError } from '../../utils/v1/errorMapper';
 import { ErrorNotice } from './ErrorNotice';
+import './ContractActionButton.css';
 
 export interface ContractActionButtonProps<T = unknown> {
   label: string;
@@ -47,6 +48,9 @@ export function ContractActionButton<T = unknown>({
   }, [walletConnected, networkSupported]);
 
   const isDisabled = disabled || isLoading || blockedReason !== null;
+  const preconditionId = blockedReason ? `${testId}-precondition` : undefined;
+  const errorId = error ? `${testId}-error-region` : undefined;
+  const describedBy = [preconditionId, errorId].filter(Boolean).join(' ') || undefined;
 
   const handleClick = async () => {
     if (isDisabled) {
@@ -77,13 +81,28 @@ export function ContractActionButton<T = unknown>({
         data-testid={testId}
         aria-busy={isLoading}
         aria-disabled={isDisabled}
+        aria-describedby={describedBy}
+        className="contract-action-button__button"
       >
         {isLoading ? loadingLabel : sanitizedLabel}
       </button>
 
-      {blockedReason && <p data-testid={`${testId}-precondition`}>{blockedReason}</p>}
+      {blockedReason && (
+        <p
+          data-testid={preconditionId}
+          id={preconditionId}
+          role="status"
+          aria-live="polite"
+        >
+          {blockedReason}
+        </p>
+      )}
 
-      {error && <ErrorNotice error={error} testId={`${testId}-error`} />}
+      {error && (
+        <div id={errorId}>
+          <ErrorNotice error={error} testId={`${testId}-error`} />
+        </div>
+      )}
     </div>
   );
 }
