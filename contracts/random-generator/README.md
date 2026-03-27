@@ -165,3 +165,15 @@ cargo test
 cargo clippy -- -D warnings
 cargo fmt
 ```
+
+---
+
+## Additional Request Visibility
+
+`get_request_status(request_id)` returns a stable lifecycle snapshot for a request id:
+
+- `Missing` when the id has never been seen.
+- `Pending` with the original `caller` and `max`.
+- `Fulfilled` with `caller`, `max`, `result`, and `server_seed`.
+
+Duplicate or missing fulfillment attempts also emit `RandomFulfillmentRejected { request_id, reason }` before returning an error, which improves request-trace debugging.
