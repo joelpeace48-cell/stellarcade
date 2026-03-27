@@ -1,5 +1,7 @@
 # epoch-scheduler
 
+Read-only timing snapshot returned by `epoch_snapshot`.  All ledger values are expressed in ledger-sequence units. Returns `None` from `epoch_snapshot` when the contract is not yet initialised.
+
 ## Public Methods
 
 ### `init`
@@ -95,9 +97,7 @@ pub fn task_state(env: Env, task_id: Symbol) -> Option<TaskData>
 `Option<TaskData>`
 
 ### `epoch_snapshot`
-Returns a timing snapshot combining the current epoch, the next epoch boundary ledger, and the ledger at which the current epoch began (last rollover).
-
-Returns `None` when the contract has not yet been initialised, making the uninitialized state explicit.
+Returns a timing snapshot combining the current epoch, the next epoch boundary, and the ledger at which the current epoch began (last rollover).  Returns `None` when the contract has not yet been initialised or the epoch duration is zero, making the uninitialized state explicit.
 
 ```rust
 pub fn epoch_snapshot(env: Env) -> Option<EpochSnapshot>
@@ -112,22 +112,4 @@ pub fn epoch_snapshot(env: Env) -> Option<EpochSnapshot>
 #### Return Type
 
 `Option<EpochSnapshot>`
-
-#### `EpochSnapshot` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `current_epoch` | `u64` | Epoch active at the current ledger sequence |
-| `epoch_duration` | `u32` | Number of ledgers per epoch as configured at init |
-| `current_epoch_start_ledger` | `u64` | Ledger sequence at which the current epoch started (last rollover) |
-| `next_epoch_start_ledger` | `u64` | Ledger sequence at which the next epoch will begin |
-
-#### Derivation
-
-Current epoch state is derived entirely from the current ledger sequence:
-- `current_epoch = ledger.sequence / epoch_duration`
-- `current_epoch_start_ledger = current_epoch × epoch_duration`
-- `next_epoch_start_ledger = current_epoch_start_ledger + epoch_duration`
-
-No additional on-chain storage is required.
 
