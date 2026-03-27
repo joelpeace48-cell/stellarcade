@@ -32,6 +32,9 @@ export interface NetworkGuardBannerProps {
   /** Optional callback when user clicks action button */
   onSwitchNetwork?: () => void | Promise<void>;
 
+  /** Optional callback to retry current network detection */
+  onRetryNetworkCheck?: () => void | Promise<void>;
+
   /** Whether banner can be dismissed by user (default: true) */
   dismissible?: boolean;
 
@@ -40,6 +43,9 @@ export interface NetworkGuardBannerProps {
 
   /** Custom action button label (default: "Switch Network") */
   actionLabel?: string;
+
+  /** Optional retry button label (default: "Retry Check") */
+  retryLabel?: string;
 
   /** Whether to show the banner at all (default: true) */
   show?: boolean;
@@ -63,9 +69,11 @@ export const NetworkGuardBanner = React.memo(
     supportedNetworks,
     isSupported,
     onSwitchNetwork,
+    onRetryNetworkCheck,
     dismissible = true,
     errorMessage,
     actionLabel = "Switch Network",
+    retryLabel = "Retry Check",
     show = true,
     children,
     persistDismissal = false,
@@ -138,6 +146,19 @@ export const NetworkGuardBanner = React.memo(
         setIsLoading(false);
       }
     }, [onSwitchNetwork, isLoading]);
+
+    const handleRetryNetworkCheck = useCallback(async () => {
+      if (!onRetryNetworkCheck || isLoading) return;
+
+      setIsLoading(true);
+      try {
+        await Promise.resolve(onRetryNetworkCheck());
+      } catch (error) {
+        console.error("[NetworkGuardBanner] Error retrying network check:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    }, [onRetryNetworkCheck, isLoading]);
 
     // Render nothing if banner shouldn't show
     if (!shouldShow) {
@@ -225,6 +246,18 @@ export const NetworkGuardBanner = React.memo(
                 ) : (
                   actionLabel
                 )}
+              </button>
+            )}
+
+            {onRetryNetworkCheck && (
+              <button
+                onClick={handleRetryNetworkCheck}
+                disabled={isLoading}
+                className="inline-flex items-center px-3 py-2 rounded-md text-sm font-medium bg-white text-yellow-800 border border-yellow-300 hover:bg-yellow-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                data-testid="network-retry-button"
+                aria-busy={isLoading}
+              >
+                {retryLabel}
               </button>
             )}
 

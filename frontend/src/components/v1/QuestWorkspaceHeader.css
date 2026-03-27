@@ -1,0 +1,219 @@
+/**
+ * QuestWorkspaceHeader Styles
+ *
+ * Styling for the quest workspace header with progress ring.
+ */
+
+.quest-workspace-header {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Back Button */
+.quest-workspace-header__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 8px 12px;
+  margin: -8px -12px 0;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  align-self: flex-start;
+}
+
+.quest-workspace-header__back:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.quest-workspace-header__back-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* Main Content */
+.quest-workspace-header__content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 32px;
+}
+
+.quest-workspace-header__info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.quest-workspace-header__category {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.quest-workspace-header__title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.quest-workspace-header__description {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+  line-height: 1.6;
+  max-width: 600px;
+}
+
+.quest-workspace-header__progress {
+  flex-shrink: 0;
+}
+
+/* Certificate Claim CTA */
+.quest-workspace-header__cta {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 255, 204, 0.05) 100%);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  border-radius: 12px;
+  padding: 20px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  animation: slideUp 0.4s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.quest-workspace-header__cta-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.quest-workspace-header__cta-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  animation: bounce 1s ease infinite;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.quest-workspace-header__cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quest-workspace-header__cta-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #00ff88;
+}
+
+.quest-workspace-header__cta-subtitle {
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.quest-workspace-header__btn {
+  padding: 14px 28px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.quest-workspace-header__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quest-workspace-header__btn--claim {
+  background: linear-gradient(135deg, #00ff88 0%, #00ffcc 100%);
+  color: #000000;
+  box-shadow: 0 4px 16px rgba(0, 255, 136, 0.4);
+  animation: pulse-glow 2s infinite;
+}
+
+.quest-workspace-header__btn--claim:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 255, 136, 0.6);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(0, 255, 136, 0.4);
+  }
+  50% {
+    box-shadow: 0 4px 24px rgba(0, 255, 136, 0.6);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .quest-workspace-header__content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .quest-workspace-header__info {
+    align-items: center;
+  }
+
+  .quest-workspace-header__description {
+    text-align: center;
+  }
+
+  .quest-workspace-header__cta {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .quest-workspace-header__cta-content {
+    flex-direction: column;
+  }
+
+  .quest-workspace-header__btn {
+    width: 100%;
+  }
+}

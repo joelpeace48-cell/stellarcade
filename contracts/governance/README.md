@@ -14,6 +14,7 @@ propose, vote on, and execute governance actions.
 | `execute(proposal_id, payload_hash)` | Execute after timelock expires (anyone) |
 | `cancel(admin, proposal_id)` | Admin emergency cancellation |
 | `get_proposal(proposal_id)` | View proposal state |
+| `get_proposal_summary(proposal_id)` | View a display-ready proposal snapshot |
 | `has_voted(proposal_id, voter)` | Check if address voted |
 
 ## Governance Flow
@@ -98,6 +99,38 @@ propose, vote on, and execute governance actions.
 **Persistent Storage:**
 - Proposal(id) → Proposal struct
 - Vote(proposal_id, voter) → bool (voted flag)
+
+## Summary Accessor
+
+`get_proposal_summary(proposal_id)` returns a single snapshot that downstream
+UI and backend code can consume without stitching together multiple reads.
+
+The summary includes:
+- effective proposal state (`ACTIVE`, derived `SUCCEEDED`, `QUEUED`, etc.)
+- raw tallies (`for_votes`, `against_votes`, `total_votes`)
+- quorum progress (`quorum_votes_required`, `quorum_votes_remaining`,
+  `quorum_progress_bps`, `quorum_reached`)
+- deterministic execution ETA
+
+For the current contract implementation, quorum progress mirrors the live
+queueing rule: any non-zero vote total satisfies quorum.
+
+### Empty state behavior
+
+Missing proposals return a summary with:
+- `exists = false`
+- the requested `proposal_id`
+- zeroed tally/quorum fields
+- `execution_eta = 0`
+
+This keeps the response shape stable while still distinguishing "proposal does
+not exist" from "proposal exists but currently has zero votes."
+
+### ETA semantics
+
+- Before queueing, `execution_eta` is derived deterministically as
+  `end_ledger + timelock_delay`
+- After queueing, `execution_eta` is the stored `eta` written during `queue`
 
 **Invariants:**
 - Each proposal_id is unique

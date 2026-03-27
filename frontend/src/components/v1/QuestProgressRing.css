@@ -1,0 +1,87 @@
+/**
+ * QuestProgressRing Styles
+ *
+ * Styling for the circular quest progress indicator.
+ */
+
+.quest-progress-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  --ring-size: 128px;
+}
+
+.quest-progress-ring__svg {
+  width: var(--ring-size);
+  height: var(--ring-size);
+  transition: transform 0.3s ease;
+}
+
+.quest-progress-ring__svg:hover {
+  transform: scale(1.05);
+}
+
+.quest-progress-ring__track {
+  transition: stroke 0.3s ease;
+}
+
+.quest-progress-ring__fill {
+  transition: stroke-dashoffset 0.1s linear;
+  filter: drop-shadow(0 0 8px rgba(0, 255, 204, 0.5));
+}
+
+/* Success state glow */
+.quest-progress-ring__svg[aria-valuenow="100"] .quest-progress-ring__fill {
+  filter: drop-shadow(0 0 12px rgba(0, 255, 136, 0.7));
+}
+
+.quest-progress-ring__percentage {
+  opacity: 0;
+  animation: fadeIn 0.5s ease forwards;
+  animation-delay: 0.2s;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.quest-progress-ring__info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.quest-progress-ring__label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+
+.quest-progress-ring__subtitle {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+}
+
+/* Size-based label adjustments */
+.quest-progress-ring:has(.quest-progress-ring__svg[width="64px"]) .quest-progress-ring__label {
+  font-size: 0.875rem;
+}
+
+.quest-progress-ring:has(.quest-progress-ring__svg[width="96px"]) .quest-progress-ring__label {
+  font-size: 0.9375rem;
+}
+
+.quest-progress-ring:has(.quest-progress-ring__svg[width="128px"]) .quest-progress-ring__label {
+  font-size: 1rem;
+}

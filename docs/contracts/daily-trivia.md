@@ -105,6 +105,23 @@ pub fn get_round(env: Env, round_id: u64) -> Option<RoundData>
 
 `Option<RoundData>`
 
+### `get_round_snapshot`
+Returns a single snapshot for the latest known round.
+
+```rust
+pub fn get_round_snapshot(env: Env) -> Result<RoundSnapshot, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`Result<RoundSnapshot, Error>`
+
 ### `reserve`
 ```rust
 pub fn reserve(env: Env, _admin: Address, game_id: u64, amount: i128)

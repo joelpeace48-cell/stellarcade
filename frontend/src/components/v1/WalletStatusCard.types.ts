@@ -79,6 +79,11 @@ export interface WalletStatusCardCallbacks {
    * Guard: only callable when error is present and `error.recoverable` is true.
    */
   onRetry?: () => void | Promise<void>;
+
+  /**
+   * Called when the user triggers network recovery from mismatch UI.
+   */
+  onRecoverNetwork?: () => void | Promise<void>;
 }
 
 /**
@@ -161,4 +166,19 @@ export interface WalletStatusCardProps extends WalletStatusCardCallbacks {
    * @default 'wallet-status-card'
    */
   testId?: string;
+
+  /**
+   * Indicates the wallet is connected to an unsupported network.
+   */
+  networkMismatch?: boolean;
+
+  /**
+   * Disables recovery CTA while network checks are pending.
+   */
+  networkRecoveryPending?: boolean;
+
+  /**
+   * Custom recovery label for mismatch CTA.
+   */
+  networkRecoveryLabel?: string;
 }

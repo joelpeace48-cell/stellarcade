@@ -13,8 +13,7 @@ require('dotenv').config();
 
 // Config and Utils
 const logger = require('./utils/logger');
-const db = require('./config/database');
-const redis = require('./config/redis');
+const { validateStartupConfig } = require('./config/startupValidation');
 
 // Middleware
 const correlationId = require('./middleware/correlation-id.middleware');
@@ -26,13 +25,20 @@ const routes = require('./routes');
 
 const app = express();
 
+const bodySizeLimit = process.env.BODY_SIZE_LIMIT || '100kb';
+
+validateStartupConfig();
+const db = require('./config/database');
+const redis = require('./config/redis');
+
 /**
  * Standard Security and Utility Middleware
  */
 app.use(correlationId); // Must be very early for full request-lifecycle coverage
 app.use(helmet()); // Basic security headers
 app.use(cors()); // Enable Cross-Origin Resource Sharing
-app.use(express.json()); // Body parser for JSON
+app.use(express.json({ limit: bodySizeLimit })); // Body parser for JSON
+app.use(express.urlencoded({ extended: true, limit: bodySizeLimit })); // Body parser for forms
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } })); // HTTP request logging
 
 /**
@@ -74,8 +80,8 @@ const gracefulShutdown = async () => {
       logger.info('Database connection closed.');
 
       // Redis client disconnect
-      if (redis.isOpen) {
-        await redis.quit();
+      if (redis.client && redis.client.isOpen) {
+        await redis.client.quit();
         logger.info('Redis connection closed.');
       }
 

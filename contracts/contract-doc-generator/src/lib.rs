@@ -278,13 +278,10 @@ impl DocGenerator {
 
         docs.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let mut index_content = String::from("# StellarCade Contracts Reference\n\n");
-        index_content.push_str("Automatic generated documentation for Soroban contracts.\n\n");
-
         for doc in docs {
             let file_name = format!("{}.md", doc.name);
             let file_path = self.output_path.join(&file_name);
-            
+
             let mut content = format!("# {}\n\n", doc.name);
             if let Some(desc) = &doc.description {
                 content.push_str(&format!("{}\n\n", desc));
@@ -325,11 +322,8 @@ impl DocGenerator {
             }
 
             fs::write(file_path, content).map_err(|e| e.to_string())?;
-            index_content.push_str(&format!("- [{}]({})\n", doc.name, file_name));
         }
 
-        fs::write(self.output_path.join("README.md"), index_content).map_err(|e| e.to_string())?;
-        
         Ok(())
     }
 }

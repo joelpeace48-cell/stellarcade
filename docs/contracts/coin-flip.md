@@ -82,3 +82,23 @@ pub fn get_game(env: Env, game_id: u64) -> Result<Game, Error>
 
 `Result<Game, Error>`
 
+### `get_recent_games`
+Return a bounded page of recent game ids for a player, ordered newest first.
+
+```rust
+pub fn get_recent_games(env: Env, player: Address, start: u32, limit: u32) -> Result<PlayerGameHistoryPage, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `player` | `Address` |
+| `start` | `u32` |
+| `limit` | `u32` |
+
+#### Return Type
+
+`Result<PlayerGameHistoryPage, Error>`
+

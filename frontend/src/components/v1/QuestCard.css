@@ -1,0 +1,285 @@
+/**
+ * QuestCard Styles
+ *
+ * Styling for the quest card component with progress indicator.
+ */
+
+.quest-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.quest-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #00d4aa, #00ffcc);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.quest-card:hover {
+  border-color: rgba(0, 255, 204, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.quest-card:hover::before {
+  opacity: 1;
+}
+
+/* Enrolled state */
+.quest-card--enrolled::before {
+  opacity: 1;
+}
+
+/* Complete state */
+.quest-card--complete {
+  border-color: rgba(0, 255, 136, 0.4);
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.08) 0%, rgba(0, 255, 204, 0.03) 100%);
+}
+
+.quest-card--complete::before {
+  background: linear-gradient(90deg, #00ff88, #00ffcc);
+}
+
+/* Category badges */
+.quest-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quest-card__category {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.quest-card__status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.quest-card__status--active {
+  color: #00ffcc;
+  background: rgba(0, 255, 204, 0.1);
+}
+
+.quest-card--complete .quest-card__status--active {
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.1);
+}
+
+/* Title and Description */
+.quest-card__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.quest-card__description {
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* Progress Section */
+.quest-card__progress {
+  padding: 8px 0;
+}
+
+/* Milestones Section */
+.quest-card__milestones {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.quest-card__milestones-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 8px;
+}
+
+.quest-card__milestones-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quest-card__milestone {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.quest-card__milestone--completed {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.quest-card__milestone-check {
+  font-size: 1rem;
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.quest-card__milestone--completed .quest-card__milestone-check {
+  color: #00ffcc;
+}
+
+.quest-card__milestone--more {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.quest-card__milestone-more {
+  font-size: 0.8125rem;
+}
+
+/* Meta Info */
+.quest-card__meta {
+  display: flex;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.quest-card__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.quest-card__meta-icon {
+  font-size: 1rem;
+}
+
+/* Action Buttons */
+.quest-card__actions {
+  padding-top: 8px;
+}
+
+.quest-card__btn {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.quest-card__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Enroll Button */
+.quest-card__btn--enroll {
+  background: linear-gradient(135deg, #00d4aa 0%, #00ffcc 100%);
+  color: #000000;
+}
+
+.quest-card__btn--enroll:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 255, 204, 0.4);
+}
+
+/* Continue Button */
+.quest-card__btn--continue {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.quest-card__btn--continue:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Claim Certificate Button */
+.quest-card__btn--claim {
+  background: linear-gradient(135deg, #00ff88 0%, #00ffcc 100%);
+  color: #000000;
+  animation: pulse-glow 2s infinite;
+}
+
+.quest-card__btn--claim:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 255, 136, 0.5);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.6);
+  }
+}
+
+.quest-card__btn-icon {
+  font-size: 1.125rem;
+}
+
+/* Compact Mode */
+.quest-card--compact {
+  padding: 16px;
+  gap: 12px;
+}
+
+.quest-card--compact .quest-card__title {
+  font-size: 1.125rem;
+}
+
+.quest-card--compact .quest-card__description {
+  font-size: 0.875rem;
+}
+
+/* Difficulty variants */
+.quest-card--beginner::before {
+  background: linear-gradient(90deg, #00ff88, #00ffcc);
+}
+
+.quest-card--intermediate::before {
+  background: linear-gradient(90deg, #ffcc00, #ffaa00);
+}
+
+.quest-card--advanced::before {
+  background: linear-gradient(90deg, #ff6600, #ff4444);
+}

@@ -13,6 +13,7 @@ pub enum DataKey {
     HealthPolicy(Address),  // contract_id → HealthPolicy
     LatestHealth(Address),  // contract_id → HealthReport
     HealthHistory(Address), // contract_id → Vec<HealthReport>
+    TrackedContracts,       // Vec<Address>
 }
 
 // ── Domain Types ─────────────────────────────────────────────────
@@ -46,6 +47,18 @@ pub struct HealthPolicy {
     pub max_history: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeartbeatFreshness {
+    pub contract_id: Address,
+    pub has_heartbeat: bool,
+    pub status: HealthStatus,
+    pub last_heartbeat_timestamp: u64,
+    pub age_seconds: u64,
+    pub stale_after_seconds: u64,
+    pub is_stale: bool,
+}
+
 // ── Events ────────────────────────────────────────────────────────
 #[contractevent]
 pub struct HealthReported {
@@ -72,6 +85,7 @@ impl ContractHealthRegistry {
             panic!("Already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::TrackedContracts, &Vec::<Address>::new(&env));
     }
 
     /// Report the health of a contract. The reporter must be authorized.
@@ -101,6 +115,7 @@ impl ContractHealthRegistry {
         env.storage()
             .persistent()
             .set(&DataKey::LatestHealth(contract_id.clone()), &report);
+        Self::track_contract(&env, &contract_id);
 
         // Append to history, respecting max_history
         let policy: Option<HealthPolicy> = env
@@ -141,6 +156,7 @@ impl ContractHealthRegistry {
 
         assert!(policy.max_history > 0, "max_history must be at least 1");
 
+        Self::track_contract(&env, &contract_id);
         env.storage()
             .persistent()
             .set(&DataKey::HealthPolicy(contract_id.clone()), &policy);
@@ -164,6 +180,62 @@ impl ContractHealthRegistry {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Return freshness information for a monitored contract heartbeat.
+    pub fn heartbeat_freshness(
+        env: Env,
+        contract_id: Address,
+        stale_after_seconds: u64,
+    ) -> HeartbeatFreshness {
+        let latest: Option<HealthReport> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::LatestHealth(contract_id.clone()));
+
+        match latest {
+            Some(report) => {
+                let now = env.ledger().timestamp();
+                let age_seconds = now.saturating_sub(report.timestamp);
+                HeartbeatFreshness {
+                    contract_id,
+                    has_heartbeat: true,
+                    status: report.status,
+                    last_heartbeat_timestamp: report.timestamp,
+                    age_seconds,
+                    stale_after_seconds,
+                    is_stale: age_seconds > stale_after_seconds,
+                }
+            }
+            None => HeartbeatFreshness {
+                contract_id,
+                has_heartbeat: false,
+                status: HealthStatus::Unknown,
+                last_heartbeat_timestamp: 0,
+                age_seconds: 0,
+                stale_after_seconds,
+                is_stale: false,
+            },
+        }
+    }
+
+    /// Return all tracked contracts whose latest heartbeat is older than the threshold.
+    pub fn stale_contracts(env: Env, stale_after_seconds: u64) -> Vec<Address> {
+        let tracked: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TrackedContracts)
+            .unwrap_or(Vec::new(&env));
+
+        let mut stale = Vec::new(&env);
+        for contract_id in tracked.iter() {
+            let freshness = Self::heartbeat_freshness(env.clone(), contract_id.clone(), stale_after_seconds);
+            if freshness.has_heartbeat && freshness.is_stale {
+                stale.push_back(contract_id);
+            }
+        }
+
+        stale
+    }
+
     // ── Internal ─────────────────────────────────────────────────
     fn require_admin(env: &Env) {
         let admin: Address = env
@@ -173,13 +245,34 @@ impl ContractHealthRegistry {
             .expect("Not initialized");
         admin.require_auth();
     }
+
+    fn track_contract(env: &Env, contract_id: &Address) {
+        let mut tracked: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TrackedContracts)
+            .unwrap_or(Vec::new(env));
+
+        let mut exists = false;
+        for existing in tracked.iter() {
+            if existing == *contract_id {
+                exists = true;
+                break;
+            }
+        }
+
+        if !exists {
+            tracked.push_back(contract_id.clone());
+            env.storage().instance().set(&DataKey::TrackedContracts, &tracked);
+        }
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, Env, Symbol};
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Env, Symbol};
 
     #[test]
     fn test_report_and_query_health() {
@@ -286,5 +379,75 @@ mod test {
         let client = ContractHealthRegistryClient::new(&env, &contract_id);
         client.init(&admin);
         client.init(&admin);
+    }
+
+    #[test]
+    fn test_fresh_heartbeat_reporting() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(1_000);
+
+        let admin = Address::generate(&env);
+        let monitored = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, ContractHealthRegistry);
+        let client = ContractHealthRegistryClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        client.report_health(&admin, &monitored, &HealthStatus::Healthy, &Symbol::new(&env, "OK"));
+
+        env.ledger().set_timestamp(1_020);
+        let freshness = client.heartbeat_freshness(&monitored, &60);
+        assert!(freshness.has_heartbeat);
+        assert_eq!(freshness.status, HealthStatus::Healthy);
+        assert_eq!(freshness.last_heartbeat_timestamp, 1_000);
+        assert_eq!(freshness.age_seconds, 20);
+        assert_eq!(freshness.is_stale, false);
+    }
+
+    #[test]
+    fn test_stale_contract_detection() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(100);
+
+        let admin = Address::generate(&env);
+        let fresh_contract = Address::generate(&env);
+        let stale_contract = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, ContractHealthRegistry);
+        let client = ContractHealthRegistryClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        client.report_health(&admin, &stale_contract, &HealthStatus::Healthy, &Symbol::new(&env, "OLD"));
+        env.ledger().set_timestamp(150);
+        client.report_health(&admin, &fresh_contract, &HealthStatus::Degraded, &Symbol::new(&env, "NEW"));
+
+        env.ledger().set_timestamp(205);
+        let stale = client.stale_contracts(&60);
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale.get(0).unwrap(), stale_contract);
+    }
+
+    #[test]
+    fn test_no_heartbeat_returns_empty_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let monitored = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, ContractHealthRegistry);
+        let client = ContractHealthRegistryClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        let freshness = client.heartbeat_freshness(&monitored, &30);
+        assert_eq!(freshness.has_heartbeat, false);
+        assert_eq!(freshness.status, HealthStatus::Unknown);
+        assert_eq!(freshness.last_heartbeat_timestamp, 0);
+        assert_eq!(freshness.is_stale, false);
+
+        let stale = client.stale_contracts(&30);
+        assert_eq!(stale.len(), 0);
     }
 }

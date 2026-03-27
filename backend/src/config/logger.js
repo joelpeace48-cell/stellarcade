@@ -42,4 +42,44 @@ const logger = winston.createLogger({
   ],
 });
 
+const INGESTION_SAFE_KEYS = new Set([
+  'contractId',
+  'eventId',
+  'eventKind',
+  'stage',
+  'retryCount',
+  'willRetry',
+  'reason',
+]);
+
+const sanitizeIngestionFailure = (payload = {}) => {
+  const safe = {};
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (!INGESTION_SAFE_KEYS.has(key)) {
+      continue;
+    }
+
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    safe[key] = value;
+  }
+
+  return safe;
+};
+
+logger.logContractIngestionFailure = (payload = {}) => {
+  const failure = sanitizeIngestionFailure(payload);
+
+  logger.error('Contract event ingestion failure', {
+    component: 'contract-monitoring',
+    event: 'contract.ingestion.failure',
+    failure,
+  });
+
+  return failure;
+};
+
 module.exports = logger;

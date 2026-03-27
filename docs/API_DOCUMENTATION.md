@@ -160,18 +160,60 @@ The frontend provides a built-in service for managing idempotency in transaction
 - **GET** `/api/games/:id` - Get details of a specific game.
 - **POST** `/api/games/play` - Initiate a game play request.
   - Body: `{ "gameType": "coin-flip", "betAmount": "10", "choice": "heads" }`
+- **GET** `/api/games/recent` - Retrieve recent games with metadata for pagination.
+  - Query: `page` (positive integer, default `1`), `limit` (positive integer, default `10`), `cursor` (optional next-page cursor), `gameType`, `status`, `sortBy`, `sortDir`.
+  - Response keeps `items` and adds:
+    - `pagination.nextCursor`: string cursor for the next page, or `null` if none.
+    - `pagination.hasNextPage`: boolean flag.
+
+Example response:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "pageSize": 10,
+  "total": 0,
+  "totalPages": 0,
+  "pagination": {
+    "nextCursor": null,
+    "hasNextPage": false
+  }
+}
+```
 
 ### Users
 
 - **GET** `/api/users/profile` - Get the current user's profile.
 - **POST** `/api/users/create` - Create a new user account linked to a Stellar address.
 - **GET** `/api/users/balance` - Get the user's on-platform balance.
+- **GET** `/api/users/audit-logs` - Retrieve audit logs with optional filtering.
+  - Query: `actor` (optional exact actor id), `action` (optional exact action), `limit` (optional positive integer, default `50`).
+  - `action` supports: `wallet.deposit`, `wallet.withdraw`, `game.play`.
+  - Unmatched filters return an empty `items` array.
 
 ### Wallet
 
 - **POST** `/api/wallet/deposit` - Get instructions for depositing Stellar assets.
 - **POST** `/api/wallet/withdraw` - Withdraw assets to a Stellar address.
 - **GET** `/api/wallet/transactions` - List all deposit and withdrawal transactions.
+
+Wallet endpoints normalize network mismatch failures with a stable error shape. Clients must pass `x-wallet-network` matching backend `STELLAR_NETWORK`.
+
+Example network mismatch response:
+
+```json
+{
+  "error": {
+    "message": "Wallet network mismatch: expected testnet, received public. Please switch your wallet network and try again.",
+    "code": "NETWORK_MISMATCH",
+    "status": 400,
+    "expectedNetwork": "testnet",
+    "receivedNetwork": "public",
+    "correlationId": "<request-correlation-id>"
+  }
+}
+```
 
 ### Health
 

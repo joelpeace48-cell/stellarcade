@@ -6,6 +6,11 @@ const logger = require('./logger');
  */
 const network = process.env.STELLAR_NETWORK || 'testnet';
 const horizonUrl = process.env.HORIZON_URL || 'https://horizon-testnet.stellar.org';
+const isLikelyUrl = (value) => /^https?:\/\//i.test(String(value || '').trim());
+
+if (!isLikelyUrl(horizonUrl)) {
+  throw new Error('Invalid startup configuration: HORIZON_URL must be a valid http(s) URL');
+}
 
 /**
  * Resolve the network passphrase from env or derive from known network name.

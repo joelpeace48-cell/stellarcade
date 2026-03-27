@@ -21,8 +21,23 @@ Processes up to `batch_size` pending settlements from the queue.
 Marks a pending settlement as failed with an error code.
 - **Authorization**: Admin.
 
+### `replay_settlement(admin: Address, settlement_id: Symbol)`
+Replays a failed settlement by restoring it to `Pending` and appending the same
+settlement identifier to the queue tail for reprocessing.
+- **Authorization**: Admin.
+- **Validation**: rejects missing, processed, pending, and processing records.
+
 ### `settlement_state(settlement_id: Symbol) -> Option<SettlementData>`
 Returns the current state of a settlement.
+
+### `queue_depth() -> u64`
+Returns the current queue depth computed from `QueueTail - QueueHead`.
+
+### `oldest_pending_settlement() -> Option<Symbol>`
+Returns the oldest pending settlement id from the current queue window.
+
+### `queue_metrics() -> QueueMetrics`
+Returns queue depth and oldest pending settlement in a single read.
 
 ## Storage Model
 
@@ -42,9 +57,11 @@ Returns the current state of a settlement.
 - `SettlementEnqueued`: Emitted when a new settlement is added to the queue.
 - `SettlementProcessed`: Emitted when a settlement is successfully processed.
 - `SettlementFailed`: Emitted when a settlement is marked as failed.
+- `SettlementReplayed`: Emitted when a failed settlement is requeued.
 
 ## Invariants
 
 - `QueueHead <= QueueTail`
 - Every `QueueItem` between `QueueHead` and `QueueTail` points to a valid `Settlement`.
 - Total settlements processed/failed + pending = Total enqueued.
+- Replay preserves the original `settlement_id`, account, amount, and reason.

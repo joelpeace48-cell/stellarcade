@@ -13,15 +13,15 @@ const db = knex({
   pool: { min: 2, max: 10 },
 });
 
-db.raw('SELECT 1')
-  .then(() => logger.info('PostgreSQL connected successfully'))
-  .catch((err) => {
-    if (process.env.NODE_ENV !== 'test') {
+const shouldSkipInitialDbPing = process.env.NODE_ENV === 'test';
+
+if (!shouldSkipInitialDbPing) {
+  db.raw('SELECT 1')
+    .then(() => logger.info('PostgreSQL connected successfully'))
+    .catch((err) => {
       logger.error('PostgreSQL connection failed:', err);
       process.exit(1);
-    } else {
-      logger.warn('PostgreSQL connection failed in test mode:', err);
-    }
-  });
+    });
+}
 
 module.exports = db;

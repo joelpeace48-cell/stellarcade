@@ -1,8 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, Address,
-    Env, Symbol,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Symbol,
 };
 
 // ---------------------------------------------------------------------------
@@ -62,6 +61,13 @@ pub struct SettlementData {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueueMetrics {
+    pub depth: u64,
+    pub oldest_pending: Option<Symbol>,
+}
+
+#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
@@ -108,6 +114,14 @@ pub struct SettlementFailed {
     pub error_code: u32,
 }
 
+#[contractevent]
+pub struct SettlementReplayed {
+    #[topic]
+    pub settlement_id: Symbol,
+    #[topic]
+    pub account: Address,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -137,11 +151,16 @@ impl SettlementQueue {
         env.storage()
             .instance()
             .set(&DataKey::TreasuryContract, &treasury_contract);
-        
+
         env.storage().instance().set(&DataKey::QueueHead, &0u64);
         env.storage().instance().set(&DataKey::QueueTail, &0u64);
 
-        ContractInitialized { admin, reward_contract, treasury_contract }.publish(&env);
+        ContractInitialized {
+            admin,
+            reward_contract,
+            treasury_contract,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -155,7 +174,7 @@ impl SettlementQueue {
         reason: Symbol,
     ) -> Result<(), Error> {
         let (admin, _reward_contract) = Self::require_initialized(&env)?;
-        
+
         // Auth: Admin must authorize this
         admin.require_auth();
 
@@ -181,7 +200,9 @@ impl SettlementQueue {
 
         // Add to queue
         let mut tail: u64 = env.storage().instance().get(&DataKey::QueueTail).unwrap();
-        env.storage().persistent().set(&DataKey::QueueItem(tail), &settlement_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::QueueItem(tail), &settlement_id);
         env.storage().persistent().extend_ttl(
             &DataKey::QueueItem(tail),
             PERSISTENT_BUMP_THRESHOLD,
@@ -191,7 +212,12 @@ impl SettlementQueue {
         tail = tail.checked_add(1).ok_or(Error::Overflow)?;
         env.storage().instance().set(&DataKey::QueueTail, &tail);
 
-        SettlementEnqueued { settlement_id, account, amount }.publish(&env);
+        SettlementEnqueued {
+            settlement_id,
+            account,
+            amount,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -212,23 +238,28 @@ impl SettlementQueue {
         while head < tail && processed_count < batch_size {
             let item_key = DataKey::QueueItem(head);
             let settlement_id: Symbol = env.storage().persistent().get(&item_key).unwrap();
-            
+
             let settlement_key = DataKey::Settlement(settlement_id.clone());
-            let mut settlement: SettlementData = env.storage().persistent().get(&settlement_key).unwrap();
+            let mut settlement: SettlementData =
+                env.storage().persistent().get(&settlement_key).unwrap();
 
             if settlement.status == SettlementStatus::Pending {
                 // In a real implementation, this would call out to Reward or Treasury
                 settlement.status = SettlementStatus::Processed;
                 env.storage().persistent().set(&settlement_key, &settlement);
-                
-                SettlementProcessed { settlement_id: settlement_id.clone(), status: SettlementStatus::Processed }.publish(&env);
+
+                SettlementProcessed {
+                    settlement_id: settlement_id.clone(),
+                    status: SettlementStatus::Processed,
+                }
+                .publish(&env);
             }
 
             // Head always increments, effectively "popping" the queue
             head += 1;
             processed_count += 1;
-            
-            // NOTE: We no longer remove the ItemKey immediately to preserve 
+
+            // NOTE: We no longer remove the ItemKey immediately to preserve
             // the index -> settlement_id mapping for historical batch status queries.
             // In a production environment, would implement a separate TTL-based GC.
             env.storage().persistent().extend_ttl(
@@ -256,7 +287,7 @@ impl SettlementQueue {
             .ok_or(Error::SettlementNotFound)?;
 
         if settlement.status == SettlementStatus::Processed {
-             return Err(Error::InvalidState);
+            return Err(Error::InvalidState);
         }
 
         settlement.status = SettlementStatus::Failed;
@@ -264,7 +295,61 @@ impl SettlementQueue {
 
         env.storage().persistent().set(&settlement_key, &settlement);
 
-        SettlementFailed { settlement_id, error_code }.publish(&env);
+        SettlementFailed {
+            settlement_id,
+            error_code,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    /// Replay a failed settlement by restoring it to pending and appending it
+    /// to the tail of the queue.
+    pub fn replay_settlement(env: Env, admin: Address, settlement_id: Symbol) -> Result<(), Error> {
+        let (stored_admin, _) = Self::require_initialized(&env)?;
+        admin.require_auth();
+        if admin != stored_admin {
+            return Err(Error::NotAuthorized);
+        }
+
+        let settlement_key = DataKey::Settlement(settlement_id.clone());
+        let mut settlement: SettlementData = env
+            .storage()
+            .persistent()
+            .get(&settlement_key)
+            .ok_or(Error::SettlementNotFound)?;
+
+        if settlement.status != SettlementStatus::Failed {
+            return Err(Error::InvalidState);
+        }
+
+        settlement.status = SettlementStatus::Pending;
+        settlement.error_code = None;
+        env.storage().persistent().set(&settlement_key, &settlement);
+        env.storage().persistent().extend_ttl(
+            &settlement_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+
+        let mut tail: u64 = env.storage().instance().get(&DataKey::QueueTail).unwrap();
+        let item_key = DataKey::QueueItem(tail);
+        env.storage().persistent().set(&item_key, &settlement_id);
+        env.storage().persistent().extend_ttl(
+            &item_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+
+        tail = tail.checked_add(1).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&DataKey::QueueTail, &tail);
+
+        SettlementReplayed {
+            settlement_id,
+            account: settlement.account,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -277,18 +362,31 @@ impl SettlementQueue {
     }
 
     /// Query current batch status by index range.
-    pub fn get_batch_status(env: Env, start_index: u64, end_index: u64) -> Result<BatchStatus, Error> {
+    pub fn get_batch_status(
+        env: Env,
+        start_index: u64,
+        end_index: u64,
+    ) -> Result<BatchStatus, Error> {
         if start_index > end_index {
             return Err(Error::InvalidState); // Range error
         }
 
-        let tail: u64 = env.storage().instance().get(&DataKey::QueueTail).unwrap_or(0);
+        let tail: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::QueueTail)
+            .unwrap_or(0);
         if end_index >= tail && tail > 0 {
-             // We could cap or error; for validation, we'll error if start is out of bounds
-             // but here we'll just check if start exists.
-             if start_index >= tail {
-                 return Ok(BatchStatus { pending: 0, processing: 0, succeeded: 0, failed: 0 });
-             }
+            // We could cap or error; for validation, we'll error if start is out of bounds
+            // but here we'll just check if start exists.
+            if start_index >= tail {
+                return Ok(BatchStatus {
+                    pending: 0,
+                    processing: 0,
+                    succeeded: 0,
+                    failed: 0,
+                });
+            }
         }
 
         let mut status = BatchStatus {
@@ -299,13 +397,21 @@ impl SettlementQueue {
         };
 
         // Safety cap for iteration
-        let effective_end = if end_index < tail { end_index } else { tail.saturating_sub(1) };
+        let effective_end = if end_index < tail {
+            end_index
+        } else {
+            tail.saturating_sub(1)
+        };
 
         for index in start_index..=effective_end {
             let item_key = DataKey::QueueItem(index);
             if let Some(settlement_id) = env.storage().persistent().get::<_, Symbol>(&item_key) {
                 let settlement_key = DataKey::Settlement(settlement_id);
-                if let Some(settlement) = env.storage().persistent().get::<_, SettlementData>(&settlement_key) {
+                if let Some(settlement) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, SettlementData>(&settlement_key)
+                {
                     match settlement.status {
                         SettlementStatus::Pending => status.pending += 1,
                         SettlementStatus::Processed => status.succeeded += 1,
@@ -319,17 +425,74 @@ impl SettlementQueue {
         Ok(status)
     }
 
+    /// Return queue depth from the current head and tail pointers.
+    pub fn queue_depth(env: Env) -> u64 {
+        let head: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::QueueHead)
+            .unwrap_or(0);
+        let tail: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::QueueTail)
+            .unwrap_or(0);
+        tail.saturating_sub(head)
+    }
+
+    /// Return the oldest pending settlement id, if any.
+    pub fn oldest_pending_settlement(env: Env) -> Option<Symbol> {
+        let head: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::QueueHead)
+            .unwrap_or(0);
+        let tail: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::QueueTail)
+            .unwrap_or(0);
+
+        for index in head..tail {
+            let item_key = DataKey::QueueItem(index);
+            if let Some(settlement_id) = env.storage().persistent().get::<_, Symbol>(&item_key) {
+                let settlement_key = DataKey::Settlement(settlement_id.clone());
+                if let Some(settlement) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, SettlementData>(&settlement_key)
+                {
+                    if settlement.status == SettlementStatus::Pending {
+                        return Some(settlement_id);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Return both queue depth and the oldest pending marker in one read.
+    pub fn queue_metrics(env: Env) -> QueueMetrics {
+        QueueMetrics {
+            depth: Self::queue_depth(env.clone()),
+            oldest_pending: Self::oldest_pending_settlement(env),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
 
     fn require_initialized(env: &Env) -> Result<(Address, Address), Error> {
-        let admin: Address = env.storage()
+        let admin: Address = env
+            .storage()
             .instance()
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
-        
-        let reward: Address = env.storage()
+
+        let reward: Address = env
+            .storage()
             .instance()
             .get(&DataKey::RewardContract)
             .ok_or(Error::NotInitialized)?;

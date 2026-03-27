@@ -9,7 +9,9 @@ client.on('error', (err) => logger.error('Redis Client Error', err));
 client.on('connect', () => logger.info('Redis connected successfully'));
 
 const connectPromise = client.connect().catch((err) => {
-  logger.error('Redis connection failed:', err);
+  if (process.env.NODE_ENV !== 'test') {
+    logger.error('Redis connection failed:', err);
+  }
 });
 
 module.exports = {

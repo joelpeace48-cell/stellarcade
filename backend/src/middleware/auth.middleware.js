@@ -5,10 +5,29 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
 const authMiddleware = (req, res, next) => {
-  const token = req.headers['authorization']?.split(' ')[1];
+  const authorization = req.headers.authorization;
+
+  if (!authorization) {
+    return res.status(401).json({
+      code: 'AUTH_HEADER_MISSING',
+      message: 'Authorization header is required',
+    });
+  }
+
+  const [scheme, token] = authorization.split(' ');
+
+  if (!scheme || scheme.toLowerCase() !== 'bearer') {
+    return res.status(401).json({
+      code: 'AUTH_SCHEME_INVALID',
+      message: 'Authorization header must use Bearer scheme',
+    });
+  }
 
   if (!token) {
-    return res.status(401).json({ message: 'No token provided' });
+    return res.status(401).json({
+      code: 'AUTH_TOKEN_MISSING',
+      message: 'Bearer token is missing',
+    });
   }
 
   if (!process.env.JWT_SECRET) {
@@ -24,7 +43,10 @@ const authMiddleware = (req, res, next) => {
     next();
   } catch (error) {
     logger.warn(`Invalid JWT attempt from ${req.ip}`);
-    return res.status(401).json({ message: 'Invalid token' });
+    return res.status(401).json({
+      code: 'AUTH_TOKEN_INVALID',
+      message: 'Invalid token',
+    });
   }
 };
 

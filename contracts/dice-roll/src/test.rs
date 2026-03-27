@@ -85,8 +85,9 @@ fn derive_rng_result(env: &Env, server_seed: &BytesN<32>, request_id: u64, max: 
         .sha256(&Bytes::from_slice(env, &preimage))
         .into();
     let arr = digest.to_array();
-    let raw =
-        u64::from_be_bytes([arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7]]);
+    let raw = u64::from_be_bytes([
+        arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7],
+    ]);
     raw % max
 }
 
@@ -99,7 +100,10 @@ fn find_seed_for_face(env: &Env, request_id: u64, desired_face: u32) -> BytesN<3
             return test_seed;
         }
     }
-    panic!("Could not find a seed for face {} at request_id {}", desired_face, request_id);
+    panic!(
+        "Could not find a seed for face {} at request_id {}",
+        desired_face, request_id
+    );
 }
 
 // -------------------------------------------------------------------
@@ -114,7 +118,9 @@ fn test_init_rejects_reinit() {
 
     let rng = Address::generate(&env);
     let tok = Address::generate(&env);
-    let result = s.dice_client.try_init(&s.admin, &rng, &tok, &10, &1000, &250);
+    let result = s
+        .dice_client
+        .try_init(&s.admin, &rng, &tok, &10, &1000, &250);
     assert!(result.is_err());
 }
 
@@ -177,7 +183,8 @@ fn test_resolve_win() {
 
     // Find a seed that produces die face = prediction
     let winning_seed = find_seed_for_face(&env, game_id, prediction);
-    s.rng_client.fulfill_random(&s.oracle, &game_id, &winning_seed);
+    s.rng_client
+        .fulfill_random(&s.oracle, &game_id, &winning_seed);
     s.dice_client.resolve_roll(&game_id);
 
     let roll = s.dice_client.get_roll(&game_id);
@@ -220,7 +227,8 @@ fn test_resolve_loss() {
         }
     }
 
-    s.rng_client.fulfill_random(&s.oracle, &game_id, &losing_seed);
+    s.rng_client
+        .fulfill_random(&s.oracle, &game_id, &losing_seed);
     s.dice_client.resolve_roll(&game_id);
 
     let roll = s.dice_client.get_roll(&game_id);
@@ -477,7 +485,8 @@ fn test_die_face_mapping() {
         s.dice_client.roll(&player, &target_face, &10, &game_id);
 
         let winning_seed = find_seed_for_face(&env, game_id, target_face);
-        s.rng_client.fulfill_random(&s.oracle, &game_id, &winning_seed);
+        s.rng_client
+            .fulfill_random(&s.oracle, &game_id, &winning_seed);
         s.dice_client.resolve_roll(&game_id);
 
         let roll = s.dice_client.get_roll(&game_id);
@@ -506,7 +515,8 @@ fn test_payout_math_250bps() {
     s.dice_client.roll(&player, &prediction, &wager, &game_id);
 
     let winning_seed = find_seed_for_face(&env, game_id, prediction);
-    s.rng_client.fulfill_random(&s.oracle, &game_id, &winning_seed);
+    s.rng_client
+        .fulfill_random(&s.oracle, &game_id, &winning_seed);
     s.dice_client.resolve_roll(&game_id);
 
     let roll = s.dice_client.get_roll(&game_id);
@@ -549,6 +559,57 @@ fn test_exact_max_wager_accepted() {
     s.dice_client.roll(&player, &6u32, &1000, &1u64);
     let roll = s.dice_client.get_roll(&1u64);
     assert_eq!(roll.wager, 1000);
+}
+
+#[test]
+fn test_update_wager_limits() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    s.dice_client.set_wager_limits(&s.admin, &25, &2500);
+    let limits = s.dice_client.get_wager_limits();
+    assert_eq!(limits.min_wager, 25);
+    assert_eq!(limits.max_wager, 2500);
+}
+
+#[test]
+fn test_invalid_wager_range_rejected() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    assert!(s
+        .dice_client
+        .try_set_wager_limits(&s.admin, &0, &100)
+        .is_err());
+    assert!(s
+        .dice_client
+        .try_set_wager_limits(&s.admin, &100, &99)
+        .is_err());
+}
+
+#[test]
+fn test_updated_wager_boundaries_enforced() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    s.dice_client.set_wager_limits(&s.admin, &25, &250);
+
+    let player = Address::generate(&env);
+    s.token_sac.mint(&player, &1_000);
+
+    s.dice_client.roll(&player, &2u32, &25, &101u64);
+    s.dice_client.roll(&player, &3u32, &250, &102u64);
+    assert!(s
+        .dice_client
+        .try_roll(&player, &4u32, &24, &103u64)
+        .is_err());
+    assert!(s
+        .dice_client
+        .try_roll(&player, &5u32, &251, &104u64)
+        .is_err());
 }
 
 // -------------------------------------------------------------------
@@ -658,7 +719,8 @@ fn test_loss_stores_actual_result() {
     let target_face = if prediction == 1 { 2u32 } else { 1u32 };
     let losing_seed = find_seed_for_face(&env, game_id, target_face);
 
-    s.rng_client.fulfill_random(&s.oracle, &game_id, &losing_seed);
+    s.rng_client
+        .fulfill_random(&s.oracle, &game_id, &losing_seed);
     s.dice_client.resolve_roll(&game_id);
 
     let roll = s.dice_client.get_roll(&game_id);

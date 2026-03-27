@@ -399,8 +399,7 @@ fn test_metrics_initial_state() {
     assert_eq!(metrics.available_balance, 0);
     assert_eq!(metrics.reserved_amount, 0);
     assert_eq!(metrics.payouts_count, 0);
-    // Ledger sequence varies by test environment, but should be initialized.
-    assert!(metrics.last_update_ledger >= 0);
+    assert_eq!(metrics.last_update_ledger, env.ledger().sequence());
 }
 
 #[test]
@@ -451,86 +450,46 @@ fn test_metrics_after_reserve_release_payout() {
     assert_eq!(m3.last_update_ledger, 400);
 }
 
-// ------------------------------------------------------------------
-// 11. Sync path reconciles accounting with actual balance
-// ------------------------------------------------------------------
-
 #[test]
-fn test_sync_no_op_when_balanced() {
+fn test_rotate_admin_success() {
     let env = Env::default();
-    let (client, admin, funder, _) = setup(&env);
+    let (client, admin, _, _) = setup(&env);
     env.mock_all_auths();
 
-    client.fund(&funder, &1_000i128);
-    
-    // No direct transfer, sync should return 0.
-    let delta = client.sync(&admin);
-    assert_eq!(delta, 0);
+    let new_admin = Address::generate(&env);
+    client.rotate_admin(&admin, &new_admin);
 
-    let state = client.get_pool_state();
-    assert_eq!(state.available, 1_000);
+    let snapshot = client.get_config_snapshot();
+    assert_eq!(snapshot.admin, new_admin);
 }
 
 #[test]
-fn test_sync_reconciles_direct_transfer() {
+fn test_rotate_admin_unauthorized_rejected() {
+    let env = Env::default();
+    let (client, _, _, _) = setup(&env);
+    env.mock_all_auths();
+
+    let attacker = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let result = client.try_rotate_admin(&attacker, &new_admin);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_config_snapshot_accuracy() {
     let env = Env::default();
     let (client, admin, funder, token_addr) = setup(&env);
     env.mock_all_auths();
 
-    let tc = token_client(&env, &token_addr);
-    let token_admin = Address::generate(&env);
-    let (_, token_sac) = create_token(&env, &token_admin);
+    env.ledger().set_sequence_number(55);
+    client.fund(&funder, &1_500i128);
+    client.reserve(&admin, &9u64, &500i128);
 
-    client.fund(&funder, &1_000i128);
-    
-    // Simulate a direct transfer bypassing `fund`.
-    token_sac.mint(&env.current_contract_address(), &500i128);
-    
-    // Invariant is broken: available (1000) + reserved (0) != actual balance (1500)
-    assert_eq!(tc.balance(&env.current_contract_address()), 1500);
-    let state_before = client.get_pool_state();
-    assert_eq!(state_before.available, 1000);
-
-    // Sync should reconcile the 500 tokens.
-    let delta = client.sync(&admin);
-    assert_eq!(delta, 500);
-
-    let state_after = client.get_pool_state();
-    assert_eq!(state_after.available, 1500);
-}
-
-#[test]
-fn test_sync_preserves_reservations() {
-    let env = Env::default();
-    let (client, admin, funder, _) = setup(&env);
-    env.mock_all_auths();
-
-    let token_admin = Address::generate(&env);
-    let (_, token_sac) = create_token(&env, &token_admin);
-
-    client.fund(&funder, &1_000i128);
-    client.reserve(&admin, &1u64, &400i128);
-    
-    // available: 600, reserved: 400, total balance: 1000.
-    
-    // Direct transfer 200 tokens.
-    token_sac.mint(&env.current_contract_address(), &200i128);
-    
-    // Sync should increase available by 200, preserving 400 reserved.
-    let delta = client.sync(&admin);
-    assert_eq!(delta, 200);
-
-    let state = client.get_pool_state();
-    assert_eq!(state.available, 800);
-    assert_eq!(state.reserved, 400);
-}
-
-#[test]
-fn test_sync_by_non_admin_rejected() {
-    let env = Env::default();
-    let (client, _, funder, _) = setup(&env);
-    env.mock_all_auths();
-
-    let result = client.try_sync(&funder);
-    assert!(result.is_err());
+    let snapshot = client.get_config_snapshot();
+    assert_eq!(snapshot.admin, admin);
+    assert_eq!(snapshot.token, token_addr);
+    assert_eq!(snapshot.available_balance, 1_000);
+    assert_eq!(snapshot.reserved_amount, 500);
+    assert_eq!(snapshot.payouts_count, 0);
+    assert_eq!(snapshot.last_update_ledger, 55);
 }

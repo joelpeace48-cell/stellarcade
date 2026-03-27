@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { client } = require('../config/redis');
+const audit = require('../services/audit.service');
 const logger = require('../utils/logger');
 
 /**
@@ -42,6 +43,30 @@ const logger = require('../utils/logger');
  * @see {@link ../../docs/API_DOCUMENTATION.md#idempotency} for full API documentation
  * @see {@link ../../frontend/src/services/idempotency-transaction-handling.README.md} for frontend integration
  */
+const stableStringify = (value) => JSON.stringify(audit.normalizeValue(value));
+
+const buildFingerprint = (req) =>
+  crypto
+    .createHash('sha256')
+    .update(
+      stableStringify({
+        method: req.method,
+        path: req.originalUrl || req.path,
+        body: req.body || {},
+      })
+    )
+    .digest('hex');
+
+const duplicateMetadata = (req, key, fingerprint, extra = {}) => ({
+  idempotencyKey: key,
+  fingerprint,
+  method: req.method,
+  path: req.originalUrl || req.path,
+  userId: req.user ? String(req.user.id) : 'anonymous',
+  request: audit.redactSensitive(req.body || {}),
+  ...extra,
+});
+
 const idempotency = async (req, res, next) => {
   const key = req.header('Idempotency-Key');
 
@@ -59,15 +84,26 @@ const idempotency = async (req, res, next) => {
 
   try {
     const cachedResponse = await client.get(redisKey);
-    // Hash current request body to compare with original if key exists
-    const bodyHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+    const fingerprint = buildFingerprint(req);
 
     if (cachedResponse) {
-      const { requestHash, statusCode, body } = JSON.parse(cachedResponse);
+      const { requestHash, requestFingerprint, statusCode, body } = JSON.parse(cachedResponse);
+      const cachedFingerprint = requestFingerprint || requestHash;
 
       // Verify that the request body matches the one used for the original request.
       // If hashes differ, the client is reusing a key with different data → reject with 409
-      if (requestHash !== bodyHash) {
+      if (cachedFingerprint !== fingerprint) {
+        audit.log({
+          actor: userId,
+          action: 'idempotency.conflict',
+          target: redisKey,
+          payload: { idempotencyKey: key, fingerprint },
+          outcome: 'failure',
+          metadata: duplicateMetadata(req, key, fingerprint, {
+            cachedFingerprint,
+            replayed: false,
+          }),
+        });
         return res.status(409).json({
           error: 'Idempotency Conflict',
           message:
@@ -76,6 +112,17 @@ const idempotency = async (req, res, next) => {
       }
 
       logger.info(`[Idempotency] Replaying cached response for key: ${key}`);
+      audit.log({
+        actor: userId,
+        action: 'idempotency.replay',
+        target: redisKey,
+        payload: { idempotencyKey: key, fingerprint },
+        outcome: 'success',
+        metadata: duplicateMetadata(req, key, fingerprint, {
+          cachedStatusCode: statusCode,
+          replayed: true,
+        }),
+      });
       return res.status(statusCode).json(body);
     }
 
@@ -91,7 +138,8 @@ const idempotency = async (req, res, next) => {
       // Only cache successful mutations (200-299)
       if (res.statusCode >= 200 && res.statusCode < 300) {
         const payloadToCache = {
-          requestHash: bodyHash,
+          requestHash: fingerprint,
+          requestFingerprint: fingerprint,
           statusCode: res.statusCode,
           body: data,
         };

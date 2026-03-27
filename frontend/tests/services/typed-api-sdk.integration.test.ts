@@ -296,6 +296,49 @@ describe('Integration — terminal vs retryable errors', () => {
     expect(spy).not.toHaveBeenCalled();
     if (!result.success) {
       expect(result.error.code).toBe('API_VALIDATION_ERROR');
+      expect(result.error.category).toBe('validation');
     }
   });
+
+  it('normalizes auth, network, server, and unknown failures into stable categories', async () => {
+    installMockServer([
+      { method: 'GET', path: '/users/profile', status: 401, body: { message: 'unauthorized' } },
+      { method: 'GET', path: '/games', status: 503, body: { message: 'unavailable' } },
+      { method: 'GET', path: '/games', status: 503, body: { message: 'unavailable' } },
+      { method: 'GET', path: '/games', status: 503, body: { message: 'unavailable' } },
+      { method: 'POST', path: '/users/create', status: 418, body: { message: 'teapot' } },
+    ]);
+
+    const authedClient = new ApiClient({ sessionStore: makeSessionStore() });
+
+    const authResult = await authedClient.getProfile();
+    expect(authResult.success).toBe(false);
+    if (!authResult.success) {
+      expect(authResult.error.category).toBe('auth');
+      expect(authResult.error.status).toBe(401);
+    }
+
+    const serverResult = await authedClient.getGames();
+    expect(serverResult.success).toBe(false);
+    if (!serverResult.success) {
+      expect(serverResult.error.category).toBe('server');
+      expect(serverResult.error.status).toBe(503);
+    }
+
+    const unknownResult = await authedClient.createProfile({ address: 'GUNKNOWN' });
+    expect(unknownResult.success).toBe(false);
+    if (!unknownResult.success) {
+      expect(unknownResult.error.category).toBe('unknown');
+      expect(unknownResult.error.status).toBe(418);
+    }
+
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as any;
+
+    const networkResult = await authedClient.getGames();
+    expect(networkResult.success).toBe(false);
+    if (!networkResult.success) {
+      expect(networkResult.error.category).toBe('network');
+      expect(networkResult.error.originalMessage).toBe('Failed to fetch');
+    }
+  }, 20_000);
 });

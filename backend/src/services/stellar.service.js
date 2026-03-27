@@ -1,10 +1,102 @@
 /**
- * Logic for submitting and monitoring transactions on the Stellar network.
+ * Stellar Network Transaction Service
+ *
+ * Core service for submitting and monitoring transactions on the Stellar network.
+ * This service is the primary interface between the backend and all Soroban smart contracts.
+ *
+ * ## Contract Interactions
+ * This service interacts with ALL smart contracts in the Stellarcade ecosystem:
+ *
+ * ### Core Infrastructure Contracts
+ * - `prize-pool`: Fund deposits, prize reservations, payouts
+ * - `treasury`: Treasury deposits, allocations, releases
+ * - `random-generator`: Randomness requests, result retrieval
+ * - `access-control`: Admin role management
+ * - `contract-address-registry`: Contract address lookups
+ *
+ * ### Game Contracts
+ * - `coin-flip`: Place bets, resolve games
+ * - `daily-trivia`: Start games, submit answers
+ * - `speed-trivia`: Fast-paced trivia games
+ * - `dice-roll`: Roll dice, get results
+ * - `number-guess`: Submit guesses, resolve games
+ * - `pattern-puzzle`: Submit patterns, verify solutions
+ * - `wordle-clone`: Start games, submit guesses
+ * - `color-prediction`: Submit predictions, get results
+ * - `higher-lower`: Submit guesses, resolve games
+ * - `price-prediction`: Submit predictions, settle outcomes
+ *
+ * ### Platform Feature Contracts
+ * - `leaderboard`: Score updates, rank queries
+ * - `staking`: Stake tokens, claim rewards
+ * - `governance`: Create proposals, vote
+ * - `referral-system`: Register referrals, claim rewards
+ * - `tournament-system`: Create tournaments, join, settle
+ * - `matchmaking-queue`: Join/leave queues, match players
+ * - `multiplayer-room`: Create rooms, join, manage state
+ *
+ * ### Cross-Contract & Utility Contracts
+ * - `cross-chain-bridge`: Bridge assets between chains
+ * - `cross-contract-handler`: Coordinate multi-contract calls
+ * - `oracle-integration`: Request oracle data
+ * - `session-nonce-manager`: Generate/validate session nonces
+ * - `contract-upgrade-timelock`: Schedule and execute upgrades
+ *
+ * ## Transaction Flow
+ *
+ * 1. Service receives base64-encoded TransactionEnvelope XDR
+ * 2. Deserializes and validates XDR structure
+ * 3. Submits transaction to configured Horizon/Soroban RPC endpoint
+ * 4. Parses response or error from network
+ * 5. Returns structured result with hash, ledger, success status
+ *
+ * ## Error Handling
+ *
+ * All errors are parsed into structured format with:
+ * - `code`: Machine-readable error code (e.g., 'TX_FAILED', 'TIMEOUT')
+ * - `message`: Human-readable error description
+ * - `resultCodes`: Detailed Horizon result codes (if available)
+ * - `httpStatus`: HTTP status code from Horizon (if applicable)
+ *
+ * ## Fail-Open Design
+ *
+ * In case of network errors or Horizon unavailability, the service
+ * returns structured error responses instead of throwing exceptions.
+ * This allows callers to implement retry logic with proper backoff.
+ *
+ * @see {@link ../../docs/ARCHITECTURE.md#backend-contract-interaction-matrix} for full interaction matrix
+ * @see {@link ../../docs/contracts/README.md} for contract reference
+ *
+ * @example
+ * // Submit a transaction to the prize-pool contract
+ * const stellarService = require('./stellar.service');
+ *
+ * const result = await stellarService.submitTransaction(transactionXDR);
+ *
+ * if (result.status === 'success') {
+ *   console.log(`Transaction successful: ${result.hash}`);
+ * } else {
+ *   console.error(`Transaction failed: ${result.errorMessage}`);
+ *   // Implement retry logic with backoff
+ * }
  */
 const StellarSdk = require('@stellar/stellar-sdk');
 const logger = require('../utils/logger');
 const { server, passphrase } = require('../config/stellar');
 const Outbox = require('../models/Outbox.model');
+
+class NetworkMismatchError extends Error {
+  constructor({ expectedNetwork, receivedNetwork }) {
+    super(
+      `Wallet network mismatch: expected ${expectedNetwork}, received ${receivedNetwork}. Please switch your wallet network and try again.`
+    );
+    this.name = 'NetworkMismatchError';
+    this.code = 'NETWORK_MISMATCH';
+    this.statusCode = 400;
+    this.expectedNetwork = expectedNetwork;
+    this.receivedNetwork = receivedNetwork;
+  }
+}
 
 /**
  * Error codes returned in the service result for structured error handling by callers.
@@ -121,7 +213,9 @@ const submitTransaction = async (transactionXDR) => {
   try {
     const response = await server.submitTransaction(transaction);
 
-    logger.info(`Transaction submitted successfully. hash=${response.hash} ledger=${response.ledger}`);
+    logger.info(
+      `Transaction submitted successfully. hash=${response.hash} ledger=${response.ledger}`
+    );
 
     return {
       status: 'success',
@@ -207,10 +301,28 @@ const submitTransactionAsync = async (transactionXDR) => {
   }
 };
 
+const normalizeNetworkName = (networkName) => {
+  return String(networkName || '').trim().toLowerCase();
+};
+
+const assertWalletNetwork = ({ walletNetwork, expectedNetwork }) => {
+  const normalizedWalletNetwork = normalizeNetworkName(walletNetwork);
+  const normalizedExpectedNetwork = normalizeNetworkName(expectedNetwork);
+
+  if (!normalizedWalletNetwork || normalizedWalletNetwork !== normalizedExpectedNetwork) {
+    throw new NetworkMismatchError({
+      expectedNetwork: normalizedExpectedNetwork || 'unknown',
+      receivedNetwork: normalizedWalletNetwork || 'unknown',
+    });
+  }
+};
+
 module.exports = {
   submitTransaction,
   submitTransactionAsync,
+  assertWalletNetwork,
   STELLAR_ERRORS,
+  NetworkMismatchError,
   // exported for testing only
   _parseHorizonError: parseHorizonError,
 };

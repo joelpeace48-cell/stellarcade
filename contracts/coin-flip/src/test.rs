@@ -350,6 +350,57 @@ fn test_multiple_games() {
     assert_eq!(g2.wager, 200);
 }
 
+#[test]
+fn test_recent_history_empty() {
+    let env = Env::default();
+    let s = setup(&env);
+    let player = Address::generate(&env);
+
+    let history = s.flip_client.get_recent_games(&player, &0, &5);
+    assert_eq!(history.total, 0);
+    assert_eq!(history.game_ids.len(), 0);
+}
+
+#[test]
+fn test_recent_history_ordering() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let player = Address::generate(&env);
+    s.token_sac.mint(&player, &1_000);
+
+    s.flip_client.place_bet(&player, &HEADS, &100, &11u64);
+    s.flip_client.place_bet(&player, &TAILS, &100, &12u64);
+    s.flip_client.place_bet(&player, &HEADS, &100, &13u64);
+
+    let history = s.flip_client.get_recent_games(&player, &0, &10);
+    assert_eq!(history.total, 3);
+    assert_eq!(history.game_ids.get(0), Some(13u64));
+    assert_eq!(history.game_ids.get(1), Some(12u64));
+    assert_eq!(history.game_ids.get(2), Some(11u64));
+}
+
+#[test]
+fn test_recent_history_retention_limit() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let player = Address::generate(&env);
+    s.token_sac.mint(&player, &5_000);
+
+    for game_id in 1u64..=12 {
+        s.flip_client.place_bet(&player, &HEADS, &100, &game_id);
+    }
+
+    let history = s.flip_client.get_recent_games(&player, &0, &20);
+    assert_eq!(history.total, PLAYER_HISTORY_LIMIT);
+    assert_eq!(history.game_ids.len(), PLAYER_HISTORY_LIMIT);
+    assert_eq!(history.game_ids.get(0), Some(12u64));
+    assert_eq!(history.game_ids.get(9), Some(3u64));
+}
+
 // -------------------------------------------------------------------
 // Helper: reproduce RNG derivation for test seed selection
 // -------------------------------------------------------------------

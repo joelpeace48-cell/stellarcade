@@ -1,0 +1,91 @@
+/**
+ * QuestProgressBar Styles
+ *
+ * Styling for the animated quest progress bar component.
+ */
+
+.quest-progress-bar {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quest-progress-bar__track {
+  width: 100%;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  overflow: hidden;
+  position: relative;
+  transition: height 0.2s ease;
+}
+
+.quest-progress-bar__fill {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    #00d4aa 0%,
+    #00ffcc 50%,
+    #00d4aa 100%
+  );
+  border-radius: 9999px;
+  transition: width 0.1s linear;
+  position: relative;
+}
+
+/* Animated shimmer effect on the fill */
+.quest-progress-bar__fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Success state - when progress is 100% */
+.quest-progress-bar__track[aria-valuenow="100"] .quest-progress-bar__fill {
+  background: linear-gradient(
+    90deg,
+    #00ff88 0%,
+    #00ffcc 50%,
+    #00ff88 100%
+  );
+}
+
+.quest-progress-bar__label {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* Size variants */
+.quest-progress-bar--small .quest-progress-bar__track {
+  height: 4px;
+}
+
+.quest-progress-bar--medium .quest-progress-bar__track {
+  height: 8px;
+}
+
+.quest-progress-bar--large .quest-progress-bar__track {
+  height: 12px;
+}

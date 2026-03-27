@@ -68,6 +68,7 @@ pub struct RoundData {
     pub reward_amount: i128,
     pub payout_per_winner: i128,
     pub winner_count: u32,
+    pub participant_count: u32,
     pub status: RoundStatus,
     pub opened_at: u64,
     pub closed_at: u64,
@@ -86,8 +87,31 @@ pub enum DataKey {
     Admin,
     PrizePoolContract,
     BalanceContract,
+    LatestRoundId,
     Round(u64),
     Submission(u64, Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum RoundSnapshotStatus {
+    Uninitialized = 0,
+    Active = 1,
+    Resolved = 2,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoundSnapshot {
+    pub status: RoundSnapshotStatus,
+    pub round_id: u64,
+    pub is_open: bool,
+    pub participant_count: u32,
+    pub winner_count: u32,
+    pub reward_amount: i128,
+    pub payout_per_winner: i128,
+    pub opened_at: u64,
+    pub closed_at: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +202,15 @@ impl DailyTrivia {
             reward_amount,
             payout_per_winner: 0,
             winner_count: 0,
+            participant_count: 0,
             status: RoundStatus::Open,
             opened_at: now,
             closed_at: 0,
         };
         env.storage().persistent().set(&key, &round);
+        env.storage()
+            .instance()
+            .set(&DataKey::LatestRoundId, &round_id);
 
         RoundOpened {
             round_id,
@@ -222,14 +250,15 @@ impl DailyTrivia {
 
         let answer_hash: BytesN<32> = env.crypto().sha256(&answer_payload).into();
         let correct = answer_hash == round.answer_commitment;
+        round.participant_count = round
+            .participant_count
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
 
         if correct {
-            round.winner_count = round
-                .winner_count
-                .checked_add(1)
-                .ok_or(Error::Overflow)?;
-            env.storage().persistent().set(&key, &round);
+            round.winner_count = round.winner_count.checked_add(1).ok_or(Error::Overflow)?;
         }
+        env.storage().persistent().set(&key, &round);
 
         let submission = Submission {
             answer_hash,
@@ -364,6 +393,50 @@ impl DailyTrivia {
     pub fn get_round(env: Env, round_id: u64) -> Option<RoundData> {
         env.storage().persistent().get(&DataKey::Round(round_id))
     }
+
+    /// Returns a single snapshot for the latest known round.
+    pub fn get_round_snapshot(env: Env) -> Result<RoundSnapshot, Error> {
+        require_initialized(&env)?;
+
+        let Some(round_id) = env
+            .storage()
+            .instance()
+            .get::<DataKey, u64>(&DataKey::LatestRoundId)
+        else {
+            return Ok(RoundSnapshot {
+                status: RoundSnapshotStatus::Uninitialized,
+                round_id: 0,
+                is_open: false,
+                participant_count: 0,
+                winner_count: 0,
+                reward_amount: 0,
+                payout_per_winner: 0,
+                opened_at: 0,
+                closed_at: 0,
+            });
+        };
+
+        let round: RoundData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .ok_or(Error::RoundNotFound)?;
+
+        Ok(RoundSnapshot {
+            status: match round.status {
+                RoundStatus::Open => RoundSnapshotStatus::Active,
+                RoundStatus::Closed => RoundSnapshotStatus::Resolved,
+            },
+            round_id,
+            is_open: round.status == RoundStatus::Open,
+            participant_count: round.participant_count,
+            winner_count: round.winner_count,
+            reward_amount: round.reward_amount,
+            payout_per_winner: round.payout_per_winner,
+            opened_at: round.opened_at,
+            closed_at: round.closed_at,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -435,15 +508,21 @@ mod test {
     #[contractimpl]
     impl MockPrizePool {
         pub fn reserve(env: Env, _admin: Address, game_id: u64, amount: i128) {
-            env.storage().persistent().set(&PoolKey::Reserved(game_id), &amount);
+            env.storage()
+                .persistent()
+                .set(&PoolKey::Reserved(game_id), &amount);
         }
 
         pub fn release(env: Env, _admin: Address, game_id: u64, amount: i128) {
-            env.storage().persistent().set(&PoolKey::Released(game_id), &amount);
+            env.storage()
+                .persistent()
+                .set(&PoolKey::Released(game_id), &amount);
         }
 
         pub fn payout(env: Env, _admin: Address, _to: Address, game_id: u64, amount: i128) {
-            env.storage().persistent().set(&PoolKey::Paid(game_id), &amount);
+            env.storage()
+                .persistent()
+                .set(&PoolKey::Paid(game_id), &amount);
         }
     }
 
@@ -625,5 +704,58 @@ mod test {
 
         let result = client.try_open_round(&6, &commitment, &100);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_round_snapshot_no_round() {
+        let env = Env::default();
+        let (client, _admin, _player, _trivia_id, _balance) = setup(&env);
+
+        let snapshot = client.get_round_snapshot();
+        assert_eq!(snapshot.status, RoundSnapshotStatus::Uninitialized);
+        assert_eq!(snapshot.round_id, 0);
+        assert!(!snapshot.is_open);
+    }
+
+    #[test]
+    fn test_round_snapshot_active_round() {
+        let env = Env::default();
+        let (client, _admin, player, _trivia_id, _balance) = setup(&env);
+
+        let payload = Bytes::from_array(&env, &[3, 1, 4]);
+        let commitment = hash_answer(&env, &payload);
+        client.open_round(&7, &commitment, &250);
+        client.submit_answer(&player, &7, &payload);
+
+        let snapshot = client.get_round_snapshot();
+        assert_eq!(snapshot.status, RoundSnapshotStatus::Active);
+        assert_eq!(snapshot.round_id, 7);
+        assert!(snapshot.is_open);
+        assert_eq!(snapshot.participant_count, 1);
+        assert_eq!(snapshot.winner_count, 1);
+        assert_eq!(snapshot.reward_amount, 250);
+        assert_eq!(snapshot.payout_per_winner, 0);
+    }
+
+    #[test]
+    fn test_round_snapshot_resolved_round() {
+        let env = Env::default();
+        let (client, _admin, player, _trivia_id, _balance) = setup(&env);
+
+        let payload = Bytes::from_array(&env, &[6, 2]);
+        let commitment = hash_answer(&env, &payload);
+        client.open_round(&8, &commitment, &300);
+        client.submit_answer(&player, &8, &payload);
+        client.close_round(&8);
+
+        let snapshot = client.get_round_snapshot();
+        assert_eq!(snapshot.status, RoundSnapshotStatus::Resolved);
+        assert_eq!(snapshot.round_id, 8);
+        assert!(!snapshot.is_open);
+        assert_eq!(snapshot.participant_count, 1);
+        assert_eq!(snapshot.winner_count, 1);
+        assert_eq!(snapshot.reward_amount, 300);
+        assert_eq!(snapshot.payout_per_winner, 300);
+        assert!(snapshot.closed_at >= snapshot.opened_at);
     }
 }

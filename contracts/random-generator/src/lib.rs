@@ -87,6 +87,14 @@ pub enum DataKey {
     FulfilledRequest(u64),
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequestState {
+    Missing = 0,
+    Pending = 1,
+    Fulfilled = 2,
+}
+
 /// A pending randomness request registered by an authorized game contract.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,6 +116,17 @@ pub struct FulfilledEntry {
     pub server_seed: BytesN<32>,
     /// `sha256(server_seed || request_id_be)[0..8] % max`; always in `[0, max)`.
     pub result: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestStatus {
+    pub request_id: u64,
+    pub state: RequestState,
+    pub caller: Option<Address>,
+    pub max: Option<u64>,
+    pub result: Option<u64>,
+    pub server_seed: Option<BytesN<32>>,
 }
 
 /// Describes the entropy source used by this contract.
@@ -147,6 +166,13 @@ pub struct RandomFulfilled {
     pub request_id: u64,
     pub result: u64,
     pub server_seed: BytesN<32>,
+}
+
+#[contractevent]
+pub struct RandomFulfillmentRejected {
+    #[topic]
+    pub request_id: u64,
+    pub reason: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -306,15 +332,27 @@ impl RandomGenerator {
             .persistent()
             .has(&DataKey::FulfilledRequest(request_id))
         {
+            RandomFulfillmentRejected {
+                request_id,
+                reason: Error::AlreadyFulfilled as u32,
+            }
+            .publish(&env);
             return Err(Error::AlreadyFulfilled);
         }
 
         let pending_key = DataKey::PendingRequest(request_id);
-        let pending: PendingEntry = env
-            .storage()
-            .persistent()
-            .get(&pending_key)
-            .ok_or(Error::RequestNotFound)?;
+        let pending: PendingEntry =
+            env.storage()
+                .persistent()
+                .get(&pending_key)
+                .ok_or_else(|| {
+                    RandomFulfillmentRejected {
+                        request_id,
+                        reason: Error::RequestNotFound as u32,
+                    }
+                    .publish(&env);
+                    Error::RequestNotFound
+                })?;
 
         let result = derive_result(&env, &server_seed, request_id, pending.max);
 
@@ -395,6 +433,50 @@ impl RandomGenerator {
             .persistent()
             .get(&DataKey::FulfilledRequest(request_id))
             .ok_or(Error::RequestNotFound)
+    }
+
+    /// Return the lifecycle status for a request id.
+    pub fn get_request_status(env: Env, request_id: u64) -> Result<RequestStatus, Error> {
+        require_initialized(&env)?;
+
+        if let Some(entry) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, FulfilledEntry>(&DataKey::FulfilledRequest(request_id))
+        {
+            return Ok(RequestStatus {
+                request_id,
+                state: RequestState::Fulfilled,
+                caller: Some(entry.caller),
+                max: Some(entry.max),
+                result: Some(entry.result),
+                server_seed: Some(entry.server_seed),
+            });
+        }
+
+        if let Some(entry) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, PendingEntry>(&DataKey::PendingRequest(request_id))
+        {
+            return Ok(RequestStatus {
+                request_id,
+                state: RequestState::Pending,
+                caller: Some(entry.caller),
+                max: Some(entry.max),
+                result: None,
+                server_seed: None,
+            });
+        }
+
+        Ok(RequestStatus {
+            request_id,
+            state: RequestState::Missing,
+            caller: None,
+            max: None,
+            result: None,
+            server_seed: None,
+        })
     }
 }
 
@@ -528,6 +610,11 @@ mod test {
         // After request, result is not yet available.
         let result = client.try_get_result(&1u64);
         assert!(result.is_err());
+
+        let status = client.get_request_status(&1u64);
+        assert_eq!(status.state, RequestState::Pending);
+        assert_eq!(status.max, Some(6u64));
+        assert_eq!(status.result, None);
     }
 
     // ------------------------------------------------------------------
@@ -607,6 +694,43 @@ mod test {
         // Second fulfill on the same request_id must fail.
         let result = client.try_fulfill_random(&oracle, &1u64, &s);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_request_status_fulfilled() {
+        let env = Env::default();
+        let (client, _, oracle, game) = setup(&env);
+        env.mock_all_auths();
+
+        let request_id = 77u64;
+        let max = 9u64;
+        let server_seed = seed(&env, 7);
+
+        client.request_random(&game, &request_id, &max);
+        client.fulfill_random(&oracle, &request_id, &server_seed);
+
+        let status = client.get_request_status(&request_id);
+        assert_eq!(status.state, RequestState::Fulfilled);
+        assert_eq!(status.max, Some(max));
+        assert_eq!(
+            status.result,
+            Some(expected_result(&env, &server_seed, request_id, max))
+        );
+        assert_eq!(status.server_seed, Some(server_seed));
+    }
+
+    #[test]
+    fn test_request_status_missing() {
+        let env = Env::default();
+        let (client, _, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let status = client.get_request_status(&999u64);
+        assert_eq!(status.state, RequestState::Missing);
+        assert_eq!(status.caller, None);
+        assert_eq!(status.max, None);
+        assert_eq!(status.result, None);
+        assert_eq!(status.server_seed, None);
     }
 
     // ------------------------------------------------------------------

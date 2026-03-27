@@ -2,7 +2,7 @@
 #![allow(unexpected_cfgs)]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
 };
 
 /// TTL bump for persistent storage entries (~30 days at 5s/ledger).
@@ -56,6 +56,21 @@ pub struct ReferralState {
     pub pending_reward: i128,
     /// Number of referral events recorded.
     pub event_count: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferralRewardPreview {
+    pub qualifies: bool,
+    pub reason: String,
+    pub referrer: Option<Address>,
+    pub referrer_reward: i128,
+    pub referee_reward: i128,
+    pub reward_bps: u32,
+    pub minimum_amount: i128,
+    /// `0` indicates no cap is configured in current settlement rules.
+    pub reward_cap: i128,
+    pub cap_applied: bool,
 }
 
 /// Storage key layout.
@@ -171,6 +186,60 @@ fn calculate_reward(amount: i128, bps: u32) -> Result<i128, Error> {
         .checked_mul(bps as i128)
         .and_then(|v| v.checked_div(BASIS_POINTS))
         .ok_or(Error::Overflow)
+}
+
+fn preview_reward(
+    env: &Env,
+    user: &Address,
+    amount: i128,
+) -> Result<ReferralRewardPreview, Error> {
+    let bps = get_reward_bps(env)?;
+    let minimum_amount = 1;
+    let no_cap = 0;
+
+    if amount < minimum_amount {
+        return Ok(ReferralRewardPreview {
+            qualifies: false,
+            reason: String::from_str(env, "amount must be greater than zero"),
+            referrer: None,
+            referrer_reward: 0,
+            referee_reward: 0,
+            reward_bps: bps,
+            minimum_amount,
+            reward_cap: no_cap,
+            cap_applied: false,
+        });
+    }
+
+    let referrer = env
+        .storage()
+        .persistent()
+        .get(&DataKey::ReferredBy(user.clone()));
+
+    match referrer {
+        Some(referrer) => Ok(ReferralRewardPreview {
+            qualifies: true,
+            reason: String::from_str(env, "eligible under current referral rules"),
+            referrer: Some(referrer),
+            referrer_reward: calculate_reward(amount, bps)?,
+            referee_reward: 0,
+            reward_bps: bps,
+            minimum_amount,
+            reward_cap: no_cap,
+            cap_applied: false,
+        }),
+        None => Ok(ReferralRewardPreview {
+            qualifies: false,
+            reason: String::from_str(env, "user has no registered referrer"),
+            referrer: None,
+            referrer_reward: 0,
+            referee_reward: 0,
+            reward_bps: bps,
+            minimum_amount,
+            reward_cap: no_cap,
+            cap_applied: false,
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -331,18 +400,17 @@ impl ReferralSystem {
             return Err(Error::InvalidAmount);
         }
 
+        let preview = preview_reward(&env, &user, amount)?;
+        if !preview.qualifies {
+            return Err(Error::ReferrerNotRegistered);
+        }
+
         // Lookup user's referrer
-        let referred_key = DataKey::ReferredBy(user.clone());
-        let referrer: Address = env
-            .storage()
-            .persistent()
-            .get(&referred_key)
-            .ok_or(Error::ReferrerNotRegistered)?;
+        let referrer: Address = preview.referrer.clone().ok_or(Error::ReferrerNotRegistered)?;
         bump_referred_by(&env, &user);
 
         // Calculate reward
-        let bps = get_reward_bps(&env)?;
-        let reward = calculate_reward(amount, bps)?;
+        let reward = preview.referrer_reward;
 
         // Credit referrer
         let mut referrer_state = get_state(&env, &referrer).unwrap_or(ReferralState {
@@ -435,6 +503,16 @@ impl ReferralSystem {
     /// Return the current reward basis points.
     pub fn get_reward_bps(env: Env) -> Result<u32, Error> {
         get_reward_bps(&env)
+    }
+
+    /// Preview reward outcomes for a referral event without mutating storage.
+    pub fn preview_referral_reward(
+        env: Env,
+        user: Address,
+        amount: i128,
+    ) -> Result<ReferralRewardPreview, Error> {
+        get_admin(&env)?;
+        preview_reward(&env, &user, amount)
     }
 }
 
@@ -864,5 +942,68 @@ mod test {
         let state = client.referral_state(&referrer);
         assert_eq!(state.pending_reward, 0);
         assert_eq!(state.event_count, 1);
+    }
+
+    #[test]
+    fn test_preview_qualifying_referral() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let referrer = Address::generate(&env);
+        let user = Address::generate(&env);
+        client.register_referrer(&user, &referrer);
+
+        let preview = client.preview_referral_reward(&user, &10_000);
+        assert!(preview.qualifies);
+        assert_eq!(
+            preview.reason,
+            String::from_str(&env, "eligible under current referral rules")
+        );
+        assert_eq!(preview.referrer, Some(referrer.clone()));
+        assert_eq!(preview.referrer_reward, 500);
+        assert_eq!(preview.referee_reward, 0);
+        assert_eq!(preview.reward_bps, 500);
+        assert_eq!(preview.reward_cap, 0);
+        assert_eq!(preview.cap_applied, false);
+
+        let state = client.referral_state(&referrer);
+        assert_eq!(state.pending_reward, 0);
+        assert_eq!(state.total_earned, 0);
+    }
+
+    #[test]
+    fn test_preview_non_qualifying_referral() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let user = Address::generate(&env);
+        let preview = client.preview_referral_reward(&user, &10_000);
+        assert!(!preview.qualifies);
+        assert_eq!(
+            preview.reason,
+            String::from_str(&env, "user has no registered referrer")
+        );
+        assert_eq!(preview.referrer, None);
+        assert_eq!(preview.referrer_reward, 0);
+        assert_eq!(preview.referee_reward, 0);
+    }
+
+    #[test]
+    fn test_preview_reports_uncapped_reward_configuration() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+        env.mock_all_auths();
+
+        let referrer = Address::generate(&env);
+        let user = Address::generate(&env);
+        client.register_referrer(&user, &referrer);
+
+        let preview = client.preview_referral_reward(&user, &25_000);
+        assert!(preview.qualifies);
+        assert_eq!(preview.reward_cap, 0);
+        assert_eq!(preview.cap_applied, false);
+        assert_eq!(preview.referrer_reward, 1_250);
     }
 }

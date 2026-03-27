@@ -23,6 +23,8 @@ import { mapApiError, mapRpcError } from "../utils/v1/errorMapper";
 import { ErrorDomain, ErrorSeverity } from "../types/errors";
 import type { AppError } from "../types/errors";
 import type {
+  ApiClientError,
+  ApiErrorCategory,
   ApiResult,
   CreateProfileRequest,
   CreateProfileResponse,
@@ -46,22 +48,95 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function makeValidationError(message: string): AppError {
+function normalizeApiClientError(
+  error: AppError,
+  overrides: {
+    category?: ApiErrorCategory;
+    status?: number;
+    originalMessage?: string;
+  } = {},
+): ApiClientError {
+  const category =
+    overrides.category ??
+    inferApiErrorCategory(error, overrides.status);
+
   return {
+    ...error,
+    severity: inferApiErrorSeverity(error, category, overrides.status),
+    category,
+    ...(overrides.status !== undefined ? { status: overrides.status } : {}),
+    originalMessage: overrides.originalMessage ?? error.message,
+  };
+}
+
+function inferApiErrorCategory(
+  error: AppError,
+  status?: number,
+): ApiErrorCategory {
+  if (
+    error.code === "API_VALIDATION_ERROR" ||
+    status === 400 ||
+    status === 422
+  ) {
+    return "validation";
+  }
+
+  if (
+    error.code === "API_UNAUTHORIZED" ||
+    error.code === "API_FORBIDDEN" ||
+    status === 401 ||
+    status === 403
+  ) {
+    return "auth";
+  }
+
+  if (error.code === "API_NETWORK_ERROR") {
+    return "network";
+  }
+
+  if (
+    error.code === "API_RATE_LIMITED" ||
+    error.code === "API_SERVER_ERROR" ||
+    (status !== undefined && status >= 500)
+  ) {
+    return "server";
+  }
+
+  return "unknown";
+}
+
+function inferApiErrorSeverity(
+  error: AppError,
+  category: ApiErrorCategory,
+  status?: number,
+): ErrorSeverity {
+  if (
+    category === "unknown" &&
+    status !== undefined &&
+    status < 500
+  ) {
+    return ErrorSeverity.TERMINAL;
+  }
+
+  return error.severity;
+}
+
+function makeValidationError(message: string): ApiClientError {
+  return normalizeApiClientError({
     code: "API_VALIDATION_ERROR",
     domain: ErrorDomain.API,
     severity: ErrorSeverity.USER_ACTIONABLE,
     message,
-  };
+  });
 }
 
-function makeUnauthorizedError(): AppError {
-  return {
+function makeUnauthorizedError(): ApiClientError {
+  return normalizeApiClientError({
     code: "API_UNAUTHORIZED",
     domain: ErrorDomain.API,
     severity: ErrorSeverity.USER_ACTIONABLE,
     message: "Authentication required. Please sign in again.",
-  };
+  });
 }
 
 // ── SessionStore interface ────────────────────────────────────────────────────
@@ -161,7 +236,7 @@ export class ApiClient {
     const url = `${this._baseUrl}${path}`;
 
     // ── Retry loop ───────────────────────────────────────────────────────────
-    let lastError: AppError | undefined;
+    let lastError: ApiClientError | undefined;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       if (attempt > 0) {
@@ -177,7 +252,14 @@ export class ApiClient {
         });
       } catch (networkErr) {
         // Network failure (fetch threw) — map and retry
-        const mappedNetErr = mapRpcError(networkErr, { url, attempt });
+        const mappedNetErr = normalizeApiClientError(
+          mapRpcError(networkErr, { url, attempt }),
+          {
+            category: "network",
+            originalMessage:
+              networkErr instanceof Error ? networkErr.message : String(networkErr),
+          },
+        );
         lastError = mappedNetErr;
         if (mappedNetErr.severity === ErrorSeverity.RETRYABLE) continue;
         return { success: false, error: mappedNetErr };
@@ -207,11 +289,23 @@ export class ApiClient {
             }
           : { status: response.status };
 
-      const mapped = mapApiError(rawWithStatus, {
-        url,
-        attempt,
-        status: response.status,
-      });
+      const mapped = normalizeApiClientError(
+        mapApiError(rawWithStatus, {
+          url,
+          attempt,
+          status: response.status,
+        }),
+        {
+          status: response.status,
+          originalMessage:
+            typeof errorBody === "object" &&
+            errorBody !== null &&
+            "message" in (errorBody as Record<string, unknown>) &&
+            typeof (errorBody as Record<string, unknown>).message === "string"
+              ? ((errorBody as Record<string, unknown>).message as string)
+              : undefined,
+        },
+      );
       lastError = mapped;
 
       // Only retry RETRYABLE errors (5xx, 429, network)

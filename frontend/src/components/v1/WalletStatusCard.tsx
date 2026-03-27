@@ -86,6 +86,37 @@ interface StatusBadgeProps {
   label: string;
 }
 
+interface NetworkRecoveryBannerProps {
+  onRecoverNetwork?: () => void | Promise<void>;
+  pending?: boolean;
+  label?: string;
+}
+
+function NetworkRecoveryBanner({
+  onRecoverNetwork,
+  pending = false,
+  label = 'Recover Network',
+}: NetworkRecoveryBannerProps): React.JSX.Element {
+  const onRecover = useCallback(() => safeCall(onRecoverNetwork, 'onRecoverNetwork'), [onRecoverNetwork]);
+
+  return (
+    <div className="wallet-status-card__network-mismatch" role="status" data-testid="wallet-network-mismatch">
+      <span className="wallet-status-card__network-mismatch-text">
+        Network mismatch detected. Switch back to a supported network to continue.
+      </span>
+      <button
+        className="wallet-status-card__btn wallet-status-card__btn--retry"
+        type="button"
+        onClick={onRecover}
+        disabled={pending || typeof onRecoverNetwork !== 'function'}
+        data-testid="wallet-network-recover-btn"
+      >
+        {pending ? 'Checking network...' : label}
+      </button>
+    </div>
+  );
+}
+
 function StatusBadge({ variant, label }: StatusBadgeProps): React.JSX.Element {
   return (
     <span
@@ -260,6 +291,10 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
   onConnect,
   onDisconnect,
   onRetry,
+  onRecoverNetwork,
+  networkMismatch = false,
+  networkRecoveryPending = false,
+  networkRecoveryLabel,
   className,
   testId = 'wallet-status-card',
 }) => {
@@ -370,6 +405,14 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
           onRetry={onRetry}
         />
       </div>
+
+      {networkMismatch && (
+        <NetworkRecoveryBanner
+          onRecoverNetwork={onRecoverNetwork}
+          pending={networkRecoveryPending}
+          label={networkRecoveryLabel}
+        />
+      )}
     </div>
   );
 };

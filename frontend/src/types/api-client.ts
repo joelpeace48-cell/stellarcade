@@ -28,7 +28,24 @@ import type { AppError } from './errors';
  */
 export type ApiResult<T> =
   | { success: true; data: T }
-  | { success: false; error: AppError };
+  | { success: false; error: ApiClientError };
+
+export const ApiErrorCategory = {
+  VALIDATION: 'validation',
+  NETWORK: 'network',
+  AUTH: 'auth',
+  SERVER: 'server',
+  UNKNOWN: 'unknown',
+} as const;
+
+export type ApiErrorCategory =
+  (typeof ApiErrorCategory)[keyof typeof ApiErrorCategory];
+
+export interface ApiClientError extends AppError {
+  category: ApiErrorCategory;
+  status?: number;
+  originalMessage?: string;
+}
 
 // ── GET /api/games ───────────────────────────────────────────────────────────
 

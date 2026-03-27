@@ -275,6 +275,9 @@ describe('ApiClient — error mapping', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('API_VALIDATION_ERROR');
+      expect(result.error.category).toBe('validation');
+      expect(result.error.status).toBe(400);
+      expect(result.error.originalMessage).toBe('invalid input');
     }
   });
 
@@ -287,6 +290,8 @@ describe('ApiClient — error mapping', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('API_UNAUTHORIZED');
+      expect(result.error.category).toBe('auth');
+      expect(result.error.status).toBe(401);
     }
   });
 
@@ -299,6 +304,8 @@ describe('ApiClient — error mapping', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('API_FORBIDDEN');
+      expect(result.error.category).toBe('auth');
+      expect(result.error.status).toBe(403);
     }
   });
 
@@ -344,8 +351,38 @@ describe('ApiClient — error mapping', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.code).toBe('API_SERVER_ERROR');
+      expect(result.error.category).toBe('server');
+      expect(result.error.status).toBe(500);
     }
   }, 20_000);
+
+  it('maps network failures to the network category', async () => {
+    mockFetchNetworkError(3);
+
+    const client = new ApiClient();
+    const result = await client.getGames();
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.category).toBe('network');
+      expect(result.error.originalMessage).toBe('Failed to fetch');
+    }
+  }, 20_000);
+
+  it('falls back to the unknown category for unclassified API responses', async () => {
+    mockFetch(418, { message: 'teapot' });
+
+    const client = new ApiClient();
+    const result = await client.getGames();
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('API_UNKNOWN');
+      expect(result.error.category).toBe('unknown');
+      expect(result.error.status).toBe(418);
+      expect(result.error.originalMessage).toBe('teapot');
+    }
+  });
 });
 
 // ── Input validation ──────────────────────────────────────────────────────────
