@@ -44,6 +44,7 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
   const [phase, setPhase] = useState<'hidden' | 'warn' | 'expired'>('hidden');
   const [dismissed, setDismissed] = useState(false);
   const expiredHandled = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const tick = useCallback(() => {
     const state = sessionService.getState();
@@ -117,6 +118,17 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     setRemainingMs(Math.max(0, sessionExpiresAtMs - nowMs));
   }, [sessionExpiresAtMs, nowMs]);
 
+  useEffect(() => {
+    if (phase === 'hidden') {
+      return;
+    }
+
+    const firstInteractive = dialogRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    firstInteractive?.focus();
+  }, [phase]);
+
   const secondsLeft = remainingMs === null ? 0 : Math.max(0, Math.ceil(remainingMs / 1000));
 
   const handleExtend = useCallback(() => {
@@ -138,6 +150,41 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     setDismissed(false);
   }, [onReconnect]);
 
+  const handleDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (phase === 'warn' && event.key === 'Escape') {
+        event.preventDefault();
+        handleDismiss();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+
+      const items = Array.from(focusable);
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [handleDismiss, phase],
+  );
+
   if (phase === 'hidden') {
     return null;
   }
@@ -154,6 +201,8 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
         aria-modal="true"
         aria-labelledby={`${testId}-title-${phase}`}
         aria-describedby={`${testId}-desc-${phase}`}
+        ref={dialogRef}
+        onKeyDown={handleDialogKeyDown}
       >
         {phase === 'warn' && (
           <>

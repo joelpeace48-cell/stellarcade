@@ -83,6 +83,13 @@
     color: var(--v1-text-primary, #ffffff);
 }
 
+.pagination-btn:focus-visible,
+.pagination-select:focus-visible {
+    outline: 2px solid var(--v1-primary-main, #3b82f6);
+    outline-offset: 2px;
+    border-color: var(--v1-primary-main, #3b82f6);
+}
+
 .pagination-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
@@ -121,10 +128,6 @@
     font-size: 0.875rem;
     cursor: pointer;
     outline: none;
-}
-
-.pagination-select:focus {
-    border-color: var(--v1-primary-main, #3b82f6);
 }
 
 /* Empty State */

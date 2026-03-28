@@ -37,7 +37,14 @@ const redis = require('./config/redis');
 app.use(correlationId); // Must be very early for full request-lifecycle coverage
 app.use(helmet()); // Basic security headers
 app.use(cors()); // Enable Cross-Origin Resource Sharing
-app.use(express.json({ limit: bodySizeLimit })); // Body parser for JSON
+app.use(
+  express.json({
+    limit: bodySizeLimit,
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+); // Body parser for JSON
 app.use(express.urlencoded({ extended: true, limit: bodySizeLimit })); // Body parser for forms
 app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } })); // HTTP request logging
 

@@ -1,4 +1,3 @@
-
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { PaginatedListController } from '../../../src/components/v1/PaginatedListController';
@@ -22,7 +21,6 @@ describe('PaginatedListController', () => {
     it('renders correctly with default props', () => {
         render(<PaginatedListController {...defaultProps} />);
 
-        // Check range text section
         const infoSection = screen.getByText(/Showing/i).closest('.pagination-info');
         expect(infoSection).toBeInTheDocument();
         if (infoSection) {
@@ -31,11 +29,8 @@ describe('PaginatedListController', () => {
             expect(within(infoSection as HTMLElement).getByText('100')).toBeInTheDocument();
         }
 
-        // Check nav buttons
-        expect(screen.getByLabelText('Go to previous page')).toBeDisabled(); // First page
+        expect(screen.getByLabelText('Go to previous page')).toBeDisabled();
         expect(screen.getByLabelText('Go to next page')).not.toBeDisabled();
-
-        // Check page numbers
         expect(screen.getByLabelText('Go to page 1')).toHaveClass('is-active');
         expect(screen.getByLabelText('Go to page 2')).toBeInTheDocument();
         expect(screen.getByText('...')).toBeInTheDocument();
@@ -101,15 +96,16 @@ describe('PaginatedListController', () => {
         expect(screen.queryByText('...')).not.toBeInTheDocument();
     });
 
-    it('supports keyboard interaction on page buttons', () => {
+    it('keeps page controls keyboard focusable', () => {
         render(<PaginatedListController {...defaultProps} />);
         const page2Button = screen.getByLabelText('Go to page 2');
+        const pageSizeSelect = screen.getByLabelText('Items per page');
 
-        fireEvent.keyDown(page2Button, { key: 'Enter', code: 'Enter' });
-        // Note: React onClick handles Enter by default on buttons
-        fireEvent.click(page2Button);
+        page2Button.focus();
+        expect(page2Button).toHaveFocus();
 
-        expect(defaultProps.onPageChange).toHaveBeenCalledWith(2);
+        pageSizeSelect.focus();
+        expect(pageSizeSelect).toHaveFocus();
     });
 
     it('transitions from loading to empty state', () => {

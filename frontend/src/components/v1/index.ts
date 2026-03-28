@@ -71,6 +71,12 @@ export {
 export type { SessionTimeoutModalProps } from "./SessionTimeoutModal";
 
 export {
+  NotificationPreferencesPanel,
+  default as NotificationPreferencesPanelDefault,
+} from "./NotificationPreferencesPanel";
+export type { NotificationPreferencesPanelProps } from "./NotificationPreferencesPanel";
+
+export {
   SkeletonBase,
   SkeletonCard,
   SkeletonRow,

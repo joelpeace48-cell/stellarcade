@@ -7,11 +7,16 @@ import type {
 } from "../types/global-state";
 import { ValidationError } from "../types/global-state";
 import type { WalletSessionMeta } from "../types/wallet-session";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  type NotificationPreferences,
+} from "../types/notification";
 
 type Subscriber = (state: GlobalState) => void;
 
 const DEFAULT_KEY = "stc_global_state_v1";
 const BANNER_DISMISSALS_KEY = "stc_banner_dismissals_v1";
+const NOTIFICATION_PREFERENCES_KEY = "stc_notification_preferences_v1";
 
 export interface BannerDismissalEntry {
   identity: string;
@@ -247,6 +252,47 @@ export function persistBannerDismissal(
   } catch {
     // no-op
   }
+}
+
+export function getNotificationPreferences(): NotificationPreferences {
+  if (!isStorageAvailable()) {
+    return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+  }
+  try {
+    const raw = localStorage.getItem(NOTIFICATION_PREFERENCES_KEY);
+    if (!raw) {
+      return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+    }
+    const parsed = JSON.parse(raw) as Partial<NotificationPreferences>;
+    return {
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      ...parsed,
+    };
+  } catch {
+    return { ...DEFAULT_NOTIFICATION_PREFERENCES };
+  }
+}
+
+export function persistNotificationPreferences(
+  preferences: NotificationPreferences
+): void {
+  if (!isStorageAvailable()) {
+    return;
+  }
+  try {
+    localStorage.setItem(
+      NOTIFICATION_PREFERENCES_KEY,
+      JSON.stringify(preferences)
+    );
+  } catch {
+    // no-op
+  }
+}
+
+export function resetNotificationPreferences(): NotificationPreferences {
+  const defaults = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+  persistNotificationPreferences(defaults);
+  return defaults;
 }
 
 export default GlobalStateStore;
