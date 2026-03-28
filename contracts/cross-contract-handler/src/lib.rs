@@ -40,7 +40,16 @@ pub struct Route {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestStatus {
     Pending(u32, Bytes),
-    Acknowledged(Bytes),
+    Acknowledged(u32, Bytes),
+    Failed(u32, Bytes),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallSnapshot {
+    pub request_id: Symbol,
+    pub route_id: u32,
+    pub status: RequestStatus,
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +68,7 @@ pub enum Error {
     DuplicateRequestId = 6,
     RequestAlreadyAcknowledged = 7,
     InvalidRoute = 8,
+    RequestAlreadyCompleted = 9,
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +222,9 @@ impl CrossContractHandler {
             .ok_or(Error::RequestNotFound)?;
         let route_id = match &status {
             RequestStatus::Pending(rid, _) => *rid,
-            RequestStatus::Acknowledged(_) => return Err(Error::RequestAlreadyAcknowledged),
+            RequestStatus::Acknowledged(_, _) | RequestStatus::Failed(_, _) => {
+                return Err(Error::RequestAlreadyAcknowledged)
+            }
         };
         let route: Route = env
             .storage()
@@ -227,7 +239,7 @@ impl CrossContractHandler {
         if caller != admin && caller != route.target_contract {
             return Err(Error::NotAuthorized);
         }
-        let new_status = RequestStatus::Acknowledged(result.clone());
+        let new_status = RequestStatus::Acknowledged(route_id, result.clone());
         env.storage()
             .instance()
             .set(&DataKey::Request(request_id.clone()), &new_status);
@@ -245,6 +257,74 @@ impl CrossContractHandler {
             .instance()
             .get(&DataKey::Route(route_id))
             .ok_or(Error::RouteNotFound)
+    }
+
+    /// Get the status and metadata for a specific call by request_id.
+    /// Returns a CallSnapshot with request_id, route_id, and current status.
+    /// This accessor is read-only and does not mutate storage.
+    /// Returns RequestNotFound error if the call ID does not exist.
+    pub fn get_call_status(env: Env, request_id: Symbol) -> Result<CallSnapshot, Error> {
+        let status: RequestStatus = env
+            .storage()
+            .instance()
+            .get(&DataKey::Request(request_id.clone()))
+            .ok_or(Error::RequestNotFound)?;
+        
+        let route_id = match &status {
+            RequestStatus::Pending(rid, _) => *rid,
+            RequestStatus::Acknowledged(rid, _) => *rid,
+            RequestStatus::Failed(rid, _) => *rid,
+        };
+        
+        Ok(CallSnapshot {
+            request_id,
+            route_id,
+            status,
+        })
+    }
+
+    /// Mark a pending request as failed. Caller must be admin or target_contract for that request's route.
+    pub fn mark_failed(
+        env: Env,
+        caller: Address,
+        request_id: Symbol,
+        error_info: Bytes,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        let status: RequestStatus = env
+            .storage()
+            .instance()
+            .get(&DataKey::Request(request_id.clone()))
+            .ok_or(Error::RequestNotFound)?;
+        
+        let route_id = match &status {
+            RequestStatus::Pending(rid, _) => *rid,
+            RequestStatus::Acknowledged(_, _) | RequestStatus::Failed(_, _) => {
+                return Err(Error::RequestAlreadyCompleted)
+            }
+        };
+        
+        let route: Route = env
+            .storage()
+            .instance()
+            .get(&DataKey::Route(route_id))
+            .ok_or(Error::RouteNotFound)?;
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        
+        if caller != admin && caller != route.target_contract {
+            return Err(Error::NotAuthorized);
+        }
+        
+        let new_status = RequestStatus::Failed(route_id, error_info);
+        env.storage()
+            .instance()
+            .set(&DataKey::Request(request_id), &new_status);
+        
+        Ok(())
     }
 }
 

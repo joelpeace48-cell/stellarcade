@@ -101,3 +101,41 @@ pub fn get_route(env: Env, route_id: u32) -> Result<Route, Error>
 
 `Result<Route, Error>`
 
+### `get_call_status`
+Get the status and metadata for a specific call by request_id. Returns a CallSnapshot with request_id, route_id, and current status. This accessor is read-only and does not mutate storage. Returns RequestNotFound error if the call ID does not exist.
+
+```rust
+pub fn get_call_status(env: Env, request_id: Symbol) -> Result<CallSnapshot, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `request_id` | `Symbol` |
+
+#### Return Type
+
+`Result<CallSnapshot, Error>`
+
+### `mark_failed`
+Mark a pending request as failed. Caller must be admin or target_contract for that request's route.
+
+```rust
+pub fn mark_failed(env: Env, caller: Address, request_id: Symbol, error_info: Bytes) -> Result<(), Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `caller` | `Address` |
+| `request_id` | `Symbol` |
+| `error_info` | `Bytes` |
+
+#### Return Type
+
+`Result<(), Error>`
+
