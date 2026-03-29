@@ -65,6 +65,7 @@ export const EmptyStateBlock: React.FC<EmptyStateBlockProps> = (props) => {
   
   // Resolve final configuration from props and variants
   const config = resolveConfig(props);
+  const variant = props.variant ?? 'default';
   
   // Validate and normalize actions
   const validActions = validateActions(actions);
@@ -72,6 +73,7 @@ export const EmptyStateBlock: React.FC<EmptyStateBlockProps> = (props) => {
   // Build CSS classes
   const containerClasses = [
     'empty-state-block',
+    variant === 'no-results' ? 'empty-state-block--no-results' : null,
     className,
   ].filter(Boolean).join(' ');
   

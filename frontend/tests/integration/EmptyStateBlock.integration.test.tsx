@@ -142,6 +142,52 @@ describe('EmptyStateBlock Integration Tests', () => {
       expect(handleResetSearch).toHaveBeenCalled();
     });
 
+    it('should work in a filtered activity table no-results state', () => {
+      const handleClearFilters = vi.fn();
+      const handleReset = vi.fn();
+
+      const { container } = render(
+        <EmptyStateBlock
+          variant="no-results"
+          actions={[
+            {
+              label: 'Clear Filters',
+              onClick: handleClearFilters,
+              variant: 'primary',
+            },
+            {
+              label: 'Reset',
+              onClick: handleReset,
+            },
+          ]}
+        />
+      );
+
+      expect(screen.getByText('No matching results')).toBeInTheDocument();
+      expect(screen.getByText(/current filters/i)).toBeInTheDocument();
+      expect(container.querySelector('.empty-state-block--no-results')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Clear Filters'));
+      expect(handleClearFilters).toHaveBeenCalled();
+
+      fireEvent.click(screen.getByText('Reset'));
+      expect(handleReset).toHaveBeenCalled();
+    });
+
+    it('should distinguish no-results from generic empty state', () => {
+      const { container: defaultContainer } = render(
+        <EmptyStateBlock variant="default" />
+      );
+      const { container: noResultsContainer } = render(
+        <EmptyStateBlock variant="no-results" />
+      );
+
+      expect(defaultContainer.querySelector('.empty-state-block--no-results')).not.toBeInTheDocument();
+      expect(noResultsContainer.querySelector('.empty-state-block--no-results')).toBeInTheDocument();
+      expect(screen.getByText('No data available')).toBeInTheDocument();
+      expect(screen.getByText('No matching results')).toBeInTheDocument();
+    });
+
     it('should work in a transaction history empty state', () => {
       const handlePlayGame = vi.fn();
       

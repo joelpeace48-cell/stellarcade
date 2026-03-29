@@ -70,6 +70,27 @@ describe('EmptyStateBlock', () => {
       expect(screen.getByText('No data available')).toBeInTheDocument();
       expect(screen.getByText('There is currently no data to display.')).toBeInTheDocument();
     });
+
+    it('should render no-results variant correctly', () => {
+      render(<EmptyStateBlock variant="no-results" />);
+      expect(screen.getByText('No matching results')).toBeInTheDocument();
+      expect(screen.getByText('Your current filters or search did not match any items. Try adjusting or resetting them.')).toBeInTheDocument();
+    });
+
+    it('should apply no-results CSS modifier class for no-results variant', () => {
+      const { container } = render(<EmptyStateBlock variant="no-results" />);
+      expect(container.querySelector('.empty-state-block--no-results')).toBeInTheDocument();
+    });
+
+    it('should not apply no-results CSS modifier class for other variants', () => {
+      const { container } = render(<EmptyStateBlock variant="list" />);
+      expect(container.querySelector('.empty-state-block--no-results')).not.toBeInTheDocument();
+    });
+
+    it('should not apply no-results CSS modifier class for default variant', () => {
+      const { container } = render(<EmptyStateBlock variant="default" />);
+      expect(container.querySelector('.empty-state-block--no-results')).not.toBeInTheDocument();
+    });
   });
 
   describe('Custom prop overrides', () => {
@@ -370,6 +391,64 @@ describe('EmptyStateBlock', () => {
       expect(screen.getByRole('status')).toBeInTheDocument();
       
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('No-results variant with reset action', () => {
+    it('should render reset filter action button', () => {
+      const handleReset = vi.fn();
+      render(
+        <EmptyStateBlock
+          variant="no-results"
+          actions={[
+            { label: 'Reset Filters', onClick: handleReset, variant: 'primary' },
+          ]}
+        />
+      );
+      expect(screen.getByText('Reset Filters')).toBeInTheDocument();
+    });
+
+    it('should call reset handler when reset button is clicked', () => {
+      const handleReset = vi.fn();
+      render(
+        <EmptyStateBlock
+          variant="no-results"
+          actions={[
+            { label: 'Reset Filters', onClick: handleReset, variant: 'primary' },
+          ]}
+        />
+      );
+      fireEvent.click(screen.getByText('Reset Filters'));
+      expect(handleReset).toHaveBeenCalledTimes(1);
+    });
+
+    it('should render both reset and secondary actions', () => {
+      const handleReset = vi.fn();
+      const handleGoBack = vi.fn();
+      render(
+        <EmptyStateBlock
+          variant="no-results"
+          actions={[
+            { label: 'Reset Filters', onClick: handleReset, variant: 'primary' },
+            { label: 'Go Back', onClick: handleGoBack },
+          ]}
+        />
+      );
+      expect(screen.getByText('Reset Filters')).toBeInTheDocument();
+      expect(screen.getByText('Go Back')).toBeInTheDocument();
+    });
+
+    it('should allow custom title and description overrides for no-results', () => {
+      render(
+        <EmptyStateBlock
+          variant="no-results"
+          title="No events matched"
+          description="Try broadening your date range."
+        />
+      );
+      expect(screen.getByText('No events matched')).toBeInTheDocument();
+      expect(screen.getByText('Try broadening your date range.')).toBeInTheDocument();
+      expect(screen.queryByText('No matching results')).not.toBeInTheDocument();
     });
   });
 

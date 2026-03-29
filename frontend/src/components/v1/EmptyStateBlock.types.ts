@@ -12,11 +12,12 @@ import type { AppError } from '../../types/errors';
  * 
  * - `list`: Empty list states (e.g., no items in a collection)
  * - `search`: No search results found
+ * - `no-results`: Filtered or searched list/table returned zero results
  * - `transaction`: Empty transaction history
  * - `error`: Error states with appropriate messaging
  * - `default`: Generic empty state fallback
  */
-export type EmptyStateVariant = 'list' | 'search' | 'transaction' | 'error' | 'default';
+export type EmptyStateVariant = 'list' | 'search' | 'no-results' | 'transaction' | 'error' | 'default';
 
 /**
  * Action button variant for visual styling.

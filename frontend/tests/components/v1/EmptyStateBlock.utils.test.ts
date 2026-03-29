@@ -284,6 +284,14 @@ describe('EmptyStateBlock Utilities', () => {
       expect(config.description).toBe(VARIANT_CONFIGS.list.description);
     });
 
+    it('should use no-results variant config', () => {
+      const props: EmptyStateBlockProps = { variant: 'no-results' };
+      const config = resolveConfig(props);
+      
+      expect(config.title).toBe(VARIANT_CONFIGS['no-results'].title);
+      expect(config.description).toBe(VARIANT_CONFIGS['no-results'].description);
+    });
+
     it('should override title with custom value', () => {
       const props: EmptyStateBlockProps = {
         variant: 'list',
@@ -480,6 +488,7 @@ describe('EmptyStateBlock Utilities', () => {
     it('should have all required variants', () => {
       expect(VARIANT_CONFIGS).toHaveProperty('list');
       expect(VARIANT_CONFIGS).toHaveProperty('search');
+      expect(VARIANT_CONFIGS).toHaveProperty('no-results');
       expect(VARIANT_CONFIGS).toHaveProperty('transaction');
       expect(VARIANT_CONFIGS).toHaveProperty('error');
       expect(VARIANT_CONFIGS).toHaveProperty('default');

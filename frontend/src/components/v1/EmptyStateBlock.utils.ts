@@ -33,6 +33,11 @@ export const VARIANT_CONFIGS: Record<EmptyStateVariant, VariantConfig> = {
     title: 'No results found',
     description: 'Try adjusting your search terms or filters.',
   },
+  'no-results': {
+    icon: '🔎',
+    title: 'No matching results',
+    description: 'Your current filters or search did not match any items. Try adjusting or resetting them.',
+  },
   transaction: {
     icon: '🧾',
     title: 'No transactions',

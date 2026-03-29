@@ -107,6 +107,12 @@
   background-color: #e1f0ff;
 }
 
+/* No-results variant modifier */
+.empty-state-block--no-results .empty-state-block__description {
+  color: #888;
+  font-style: italic;
+}
+
 /* Responsive adjustments */
 @media (max-width: 640px) {
   .empty-state-block {
