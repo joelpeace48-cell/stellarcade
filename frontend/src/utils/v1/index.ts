@@ -4,6 +4,7 @@
  * @module utils/v1
  */
 
+export * from './csv';
 export * from './errorMapper';
 export * from './formatters';
 export * from './idempotency';

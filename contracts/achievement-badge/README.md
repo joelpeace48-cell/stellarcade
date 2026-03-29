@@ -80,6 +80,40 @@ empty list if the user has no badges. Does not require initialization.
 
 ---
 
+### `set_badge_metadata(admin, badge_id, title, description, award_rules) → Result<(), Error>`
+
+Attach or update human-readable metadata for an existing badge. Admin only.
+The badge must already be defined via `define_badge`. Metadata is stored
+separately from the immutable `BadgeDefinition`, allowing copy edits and
+future field expansion without altering the on-chain criteria hash.
+
+Returns `BadgeNotFound` if `badge_id` is not defined.
+
+---
+
+### `get_badge_summary(badge_id: u64) → BadgeSummary`
+
+Return a single-call snapshot combining the badge definition and its metadata.
+Designed for badge-card rendering — no additional reads are required.
+
+- When `badge_id` is unknown, `found` is `false` and all other fields carry
+  zero/empty values.
+- Metadata fields (`title`, `description`, `award_rules`) are empty strings if
+  `set_badge_metadata` has not been called for the badge.
+
+---
+
+### `get_claim_status(user: Address, badge_id: u64) → ClaimStatusSnapshot`
+
+Return the per-user claim-status snapshot for a `(user, badge_id)` pair.
+
+- `badge_found: false` and `claimed: false` when the badge does not exist.
+- `claimed: false` when the badge exists but has not been awarded to this user.
+
+Both fields are deterministic for all inputs.
+
+---
+
 ## Events
 
 | Event | Topics | Data | Description |
@@ -97,6 +131,7 @@ empty list if the user has no badges. Does not require initialization.
 | `Admin` | instance | `Address` | Contract administrator |
 | `RewardContract` | instance | `Address` | Downstream payout contract |
 | `Badge(badge_id)` | persistent | `BadgeDefinition` | Badge definition |
+| `BadgeMeta(badge_id)` | persistent | `BadgeMetaEntry` | Human-readable metadata |
 | `UserBadges(user)` | persistent | `Vec<u64>` | Badge IDs held by user |
 
 Persistent entries have their TTL bumped to `518_400` ledgers (~30 days) on

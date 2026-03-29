@@ -102,3 +102,29 @@ pub fn badges_of(env: Env, user: Address) -> Vec<u64>
 
 `Vec<u64>`
 
+### `set_badge_metadata`
+Attach or update human-readable metadata for an existing badge. Admin only. The badge must be defined first. Returns `BadgeNotFound` if `badge_id` is not defined.
+
+```rust
+pub fn set_badge_metadata(env: Env, admin: Address, badge_id: u64, title: String, description: String, award_rules: String) -> Result<(), Error>
+```
+Parameters: `env: Env`, `admin: Address`, `badge_id: u64`, `title: String`, `description: String`, `award_rules: String`
+Return: `Result<(), Error>`
+
+### `get_badge_summary`
+Return a single-call snapshot combining the badge definition and its metadata, suitable for rendering a badge card without additional reads. When `badge_id` is unknown, `found` is `false` and all other fields carry zero/empty values.
+
+```rust
+pub fn get_badge_summary(env: Env, badge_id: u64) -> BadgeSummary
+```
+Parameters: `env: Env`, `badge_id: u64`
+Return: `BadgeSummary`
+
+### `get_claim_status`
+Return the per-user claim-status snapshot for a `(user, badge_id)` pair. `badge_found` is `false` and `claimed` is `false` when the badge does not exist. `claimed` is `false` when the badge exists but has not been awarded to this user.
+
+```rust
+pub fn get_claim_status(env: Env, user: Address, badge_id: u64) -> ClaimStatusSnapshot
+```
+Parameters: `env: Env`, `user: Address`, `badge_id: u64`
+Return: `ClaimStatusSnapshot`

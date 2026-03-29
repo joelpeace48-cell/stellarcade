@@ -22,7 +22,7 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, vec, Address, BytesN, Env,
-    Vec,
+    String, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -69,6 +69,8 @@ pub enum DataKey {
     Badge(u64),
     /// List of badge_ids awarded to a user, keyed by user Address.
     UserBadges(Address),
+    /// Human-readable metadata for a badge, keyed by badge_id.
+    BadgeMeta(u64),
 }
 
 /// Definition of a badge, stored on-chain.
@@ -84,6 +86,53 @@ pub struct BadgeDefinition {
     pub criteria_hash: BytesN<32>,
     /// Token amount paid via `reward_contract` when badge is awarded. 0 = none.
     pub reward: i128,
+}
+
+/// Human-readable metadata attached to a badge.
+///
+/// Stored separately from `BadgeDefinition` to allow metadata updates
+/// without touching the immutable criteria commitment, and to remain
+/// compatible with future metadata expansion.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BadgeMetaEntry {
+    /// Display name shown on the badge card (e.g. "First Win").
+    pub title: String,
+    /// Short description of the achievement.
+    pub description: String,
+    /// Plain-language explanation of the award rules / criteria.
+    pub award_rules: String,
+}
+
+/// A single-call snapshot combining definition and metadata, suitable for
+/// rendering a complete badge card without additional reads.
+///
+/// `found` is `false` when the `badge_id` is unknown; all other fields
+/// will be zero-values in that case.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BadgeSummary {
+    /// `false` means the badge_id does not exist; all other fields are empty.
+    pub found: bool,
+    pub badge_id: u64,
+    pub criteria_hash: BytesN<32>,
+    pub reward: i128,
+    pub title: String,
+    pub description: String,
+    pub award_rules: String,
+}
+
+/// Per-user claim-status snapshot for a single badge.
+///
+/// `badge_found` is `false` when the badge_id is not defined.
+/// `claimed` is `false` both when the badge is unknown and when the user
+/// has not yet been awarded it.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimStatusSnapshot {
+    pub badge_id: u64,
+    pub claimed: bool,
+    pub badge_found: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +336,115 @@ impl AchievementBadge {
             .persistent()
             .get(&user_key)
             .unwrap_or_else(|| vec![&env])
+    }
+
+    // -----------------------------------------------------------------------
+    // set_badge_metadata
+    // -----------------------------------------------------------------------
+
+    /// Attach human-readable metadata to an existing badge. Admin only.
+    ///
+    /// The badge must already be defined via `define_badge`. Metadata may be
+    /// updated by calling this again; each write extends the TTL.
+    ///
+    /// Keeping metadata separate from the immutable `BadgeDefinition` allows
+    /// copy edits and future metadata field additions without touching the
+    /// on-chain criteria commitment.
+    pub fn set_badge_metadata(
+        env: Env,
+        admin: Address,
+        badge_id: u64,
+        title: String,
+        description: String,
+        award_rules: String,
+    ) -> Result<(), Error> {
+        require_initialized(&env)?;
+        require_admin(&env, &admin)?;
+        require_badge_exists(&env, badge_id)?;
+
+        let entry = BadgeMetaEntry { title, description, award_rules };
+        let key = DataKey::BadgeMeta(badge_id);
+        env.storage().persistent().set(&key, &entry);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // get_badge_summary
+    // -----------------------------------------------------------------------
+
+    /// Return a combined badge definition + metadata snapshot for `badge_id`.
+    ///
+    /// This is designed for single-call badge-card rendering — no additional
+    /// reads are required. When `badge_id` is unknown `found` is `false` and
+    /// all other fields carry zero/empty values. Missing metadata fields
+    /// (metadata not yet set) are returned as empty strings.
+    pub fn get_badge_summary(env: Env, badge_id: u64) -> BadgeSummary {
+        let definition: Option<BadgeDefinition> =
+            env.storage().persistent().get(&DataKey::Badge(badge_id));
+
+        match definition {
+            None => BadgeSummary {
+                found: false,
+                badge_id,
+                criteria_hash: BytesN::from_array(&env, &[0u8; 32]),
+                reward: 0,
+                title: String::from_str(&env, ""),
+                description: String::from_str(&env, ""),
+                award_rules: String::from_str(&env, ""),
+            },
+            Some(def) => {
+                let meta: Option<BadgeMetaEntry> =
+                    env.storage().persistent().get(&DataKey::BadgeMeta(badge_id));
+                let (title, description, award_rules) = match meta {
+                    Some(m) => (m.title, m.description, m.award_rules),
+                    None => (
+                        String::from_str(&env, ""),
+                        String::from_str(&env, ""),
+                        String::from_str(&env, ""),
+                    ),
+                };
+                BadgeSummary {
+                    found: true,
+                    badge_id,
+                    criteria_hash: def.criteria_hash,
+                    reward: def.reward,
+                    title,
+                    description,
+                    award_rules,
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // get_claim_status
+    // -----------------------------------------------------------------------
+
+    /// Return the claim-status snapshot for `(user, badge_id)`.
+    ///
+    /// `badge_found` is `false` and `claimed` is `false` when the badge does
+    /// not exist. `claimed` is `false` when the badge exists but has not been
+    /// awarded to this user. Both fields are deterministic for all inputs.
+    pub fn get_claim_status(env: Env, user: Address, badge_id: u64) -> ClaimStatusSnapshot {
+        let badge_found = env.storage().persistent().has(&DataKey::Badge(badge_id));
+
+        if !badge_found {
+            return ClaimStatusSnapshot { badge_id, claimed: false, badge_found: false };
+        }
+
+        let badges: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::UserBadges(user))
+            .unwrap_or_else(|| vec![&env]);
+
+        let claimed = badges.iter().any(|id| id == badge_id);
+
+        ClaimStatusSnapshot { badge_id, claimed, badge_found: true }
     }
 }
 
@@ -629,5 +787,134 @@ mod test {
 
         // Duplicate award must fail.
         assert!(client.try_award_badge(&admin, &user, &1u64).is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // 7. get_badge_summary
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_badge_summary_known_badge_without_metadata() {
+        let env = Env::default();
+        let (client, admin, _) = setup(&env);
+        env.mock_all_auths();
+
+        let hash = make_hash(&env, 20);
+        client.define_badge(&admin, &5u64, &hash, &100i128);
+
+        let summary = client.get_badge_summary(&5u64);
+        assert!(summary.found);
+        assert_eq!(summary.badge_id, 5u64);
+        assert_eq!(summary.reward, 100i128);
+        assert_eq!(summary.criteria_hash, hash);
+        // Metadata not yet set — empty strings expected.
+        assert_eq!(summary.title, soroban_sdk::String::from_str(&env, ""));
+    }
+
+    #[test]
+    fn test_get_badge_summary_known_badge_with_metadata() {
+        let env = Env::default();
+        let (client, admin, _) = setup(&env);
+        env.mock_all_auths();
+
+        let hash = make_hash(&env, 21);
+        client.define_badge(&admin, &6u64, &hash, &0i128);
+
+        client.set_badge_metadata(
+            &admin,
+            &6u64,
+            &soroban_sdk::String::from_str(&env, "First Win"),
+            &soroban_sdk::String::from_str(&env, "Win your first game"),
+            &soroban_sdk::String::from_str(&env, "Win one ranked match"),
+        );
+
+        let summary = client.get_badge_summary(&6u64);
+        assert!(summary.found);
+        assert_eq!(summary.title, soroban_sdk::String::from_str(&env, "First Win"));
+        assert_eq!(
+            summary.description,
+            soroban_sdk::String::from_str(&env, "Win your first game")
+        );
+        assert_eq!(
+            summary.award_rules,
+            soroban_sdk::String::from_str(&env, "Win one ranked match")
+        );
+    }
+
+    #[test]
+    fn test_get_badge_summary_unknown_badge_returns_not_found() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+
+        let summary = client.get_badge_summary(&9999u64);
+        assert!(!summary.found);
+        assert_eq!(summary.badge_id, 9999u64);
+        assert_eq!(summary.reward, 0i128);
+    }
+
+    #[test]
+    fn test_set_badge_metadata_requires_badge_defined() {
+        let env = Env::default();
+        let (client, admin, _) = setup(&env);
+        env.mock_all_auths();
+
+        // Badge 42 not defined — should fail.
+        let result = client.try_set_badge_metadata(
+            &admin,
+            &42u64,
+            &soroban_sdk::String::from_str(&env, "Title"),
+            &soroban_sdk::String::from_str(&env, "Desc"),
+            &soroban_sdk::String::from_str(&env, "Rules"),
+        );
+        assert!(result.is_err());
+    }
+
+    // ------------------------------------------------------------------
+    // 8. get_claim_status
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_get_claim_status_claimed_user() {
+        let env = Env::default();
+        let (client, admin, _) = setup(&env);
+        env.mock_all_auths();
+
+        let hash = make_hash(&env, 30);
+        client.define_badge(&admin, &7u64, &hash, &0i128);
+
+        let user = Address::generate(&env);
+        client.award_badge(&admin, &user, &7u64);
+
+        let snapshot = client.get_claim_status(&user, &7u64);
+        assert!(snapshot.badge_found);
+        assert!(snapshot.claimed);
+        assert_eq!(snapshot.badge_id, 7u64);
+    }
+
+    #[test]
+    fn test_get_claim_status_unclaimed_user() {
+        let env = Env::default();
+        let (client, admin, _) = setup(&env);
+        env.mock_all_auths();
+
+        let hash = make_hash(&env, 31);
+        client.define_badge(&admin, &8u64, &hash, &0i128);
+
+        let user = Address::generate(&env);
+        // User has not been awarded the badge.
+        let snapshot = client.get_claim_status(&user, &8u64);
+        assert!(snapshot.badge_found);
+        assert!(!snapshot.claimed);
+    }
+
+    #[test]
+    fn test_get_claim_status_unknown_badge() {
+        let env = Env::default();
+        let (client, _, _) = setup(&env);
+
+        let user = Address::generate(&env);
+        let snapshot = client.get_claim_status(&user, &9999u64);
+        assert!(!snapshot.badge_found);
+        assert!(!snapshot.claimed);
     }
 }

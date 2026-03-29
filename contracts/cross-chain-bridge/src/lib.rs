@@ -19,6 +19,57 @@ pub enum Error {
     ContractPaused = 9,
     InvalidQuorum = 10,
     InvalidSignature = 11,
+    RequestNotFound = 12,
+}
+
+// ── Bridge request tracking types ─────────────────────────────────
+
+/// Direction of a bridge request from the perspective of this (Stellar) chain.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum BridgeDirection {
+    /// Outbound: assets leave Stellar (lock or burn_wrapped).
+    Outbound = 0,
+    /// Inbound: assets arrive on Stellar (mint_wrapped or release).
+    Inbound = 1,
+}
+
+/// Lifecycle status of a bridge request.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum BridgeRequestStatus {
+    /// Request initiated; awaiting validator confirmations on remote chain.
+    Initiated = 0,
+    /// Request successfully finalized (proof accepted, assets transferred).
+    Finalized = 1,
+    /// Request marked failed by admin (e.g. stuck or expired).
+    Failed = 2,
+}
+
+/// Full observable state of a single bridge request.
+///
+/// For outbound requests the `proof` field is zeroed (not yet known on-chain).
+/// For inbound requests `request_id` is 0 and direction is `Inbound`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BridgeRequestSummary {
+    /// Stable identifier assigned at request creation (outbound only).
+    pub request_id: u64,
+    pub direction: BridgeDirection,
+    pub asset: Address,
+    pub amount: i128,
+    /// Destination chain symbol (outbound) or source chain symbol (inbound).
+    pub recipient_chain: Symbol,
+    /// Human-readable recipient address on the remote chain.
+    pub recipient: String,
+    pub status: BridgeRequestStatus,
+    /// For inbound requests: the 32-byte proof that was verified.
+    /// For outbound requests: zeroed sentinel (proof not yet known on-chain).
+    pub proof: BytesN<32>,
+    /// Ledger sequence number at which this record was written.
+    pub ledger: u32,
 }
 
 #[contracttype]
@@ -31,6 +82,12 @@ pub enum DataKey {
     WrappedTokenMapping(Address),
     ProcessedProofs(BytesN<32>),
     Paused,
+    /// Monotonically increasing counter; each outbound call increments it.
+    RequestNonce,
+    /// Per-outbound-request record, keyed by sequential ID.
+    BridgeRequest(u64),
+    /// Per-inbound-finalization record, keyed by proof hash.
+    InboundByProof(BytesN<32>),
 }
 
 // ── Events ────────────────────────────────────────────────────────
@@ -49,6 +106,8 @@ pub struct TokenLocked {
     pub amount: i128,
     pub recipient_chain: Symbol,
     pub recipient: String,
+    /// Sequential request ID assigned to this lock operation.
+    pub request_id: u64,
 }
 
 #[contractevent]
@@ -70,6 +129,8 @@ pub struct WrappedBurned {
     pub amount: i128,
     pub recipient_chain: Symbol,
     pub recipient: String,
+    /// Sequential request ID assigned to this burn operation.
+    pub request_id: u64,
 }
 
 #[contractevent]
@@ -104,6 +165,7 @@ impl CrossChainBridge {
         env.storage().instance().set(&DataKey::Validators, &validators);
         env.storage().instance().set(&DataKey::Quorum, &quorum);
         env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().set(&DataKey::RequestNonce, &0u64);
 
         BridgeInitialized { admin, quorum }.publish(&env);
         Ok(())
@@ -139,12 +201,27 @@ impl CrossChainBridge {
         let client = token::Client::new(&env, &asset);
         client.transfer(&from, &env.current_contract_address(), &amount);
 
+        let request_id = next_request_id(&env);
+        let record = BridgeRequestSummary {
+            request_id,
+            direction: BridgeDirection::Outbound,
+            asset: asset.clone(),
+            amount,
+            recipient_chain: recipient_chain.clone(),
+            recipient: recipient.clone(),
+            status: BridgeRequestStatus::Initiated,
+            proof: BytesN::from_array(&env, &[0u8; 32]),
+            ledger: env.ledger().sequence(),
+        };
+        store_request(&env, request_id, &record);
+
         TokenLocked {
             asset,
             from,
             amount,
             recipient_chain,
             recipient,
+            request_id,
         }
         .publish(&env);
         Ok(())
@@ -169,6 +246,21 @@ impl CrossChainBridge {
             .ok_or(Error::TokenNotMapped)?;
 
         token::StellarAssetClient::new(&env, &asset_address).mint(&recipient, &amount);
+
+        let record = BridgeRequestSummary {
+            request_id: 0,
+            direction: BridgeDirection::Inbound,
+            asset: asset_address.clone(),
+            amount,
+            recipient_chain: asset_symbol.clone(),
+            recipient: String::from_str(&env, ""),
+            status: BridgeRequestStatus::Finalized,
+            proof: proof.clone(),
+            ledger: env.ledger().sequence(),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::InboundByProof(proof.clone()), &record);
 
         WrappedMinted {
             asset_symbol,
@@ -202,12 +294,27 @@ impl CrossChainBridge {
 
         token::StellarAssetClient::new(&env, &asset).burn(&from, &amount);
 
+        let request_id = next_request_id(&env);
+        let record = BridgeRequestSummary {
+            request_id,
+            direction: BridgeDirection::Outbound,
+            asset: asset.clone(),
+            amount,
+            recipient_chain: recipient_chain.clone(),
+            recipient: recipient.clone(),
+            status: BridgeRequestStatus::Initiated,
+            proof: BytesN::from_array(&env, &[0u8; 32]),
+            ledger: env.ledger().sequence(),
+        };
+        store_request(&env, request_id, &record);
+
         WrappedBurned {
             asset,
             from,
             amount,
             recipient_chain,
             recipient,
+            request_id,
         }
         .publish(&env);
         Ok(())
@@ -228,6 +335,21 @@ impl CrossChainBridge {
         let client = token::Client::new(&env, &asset);
         client.transfer(&env.current_contract_address(), &recipient, &amount);
 
+        let record = BridgeRequestSummary {
+            request_id: 0,
+            direction: BridgeDirection::Inbound,
+            asset: asset.clone(),
+            amount,
+            recipient_chain: Symbol::new(&env, "stellar"),
+            recipient: String::from_str(&env, ""),
+            status: BridgeRequestStatus::Finalized,
+            proof: proof.clone(),
+            ledger: env.ledger().sequence(),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::InboundByProof(proof.clone()), &record);
+
         TokenReleased {
             asset,
             recipient,
@@ -235,6 +357,46 @@ impl CrossChainBridge {
             proof,
         }
         .publish(&env);
+        Ok(())
+    }
+
+    // ── Request status accessors ──────────────────────────────────
+
+    /// Return the full status summary for an outbound request by its sequential ID.
+    ///
+    /// Returns `None` when the ID is unknown; callers should treat absence as
+    /// "not found" rather than an error.  The summary never exposes validator
+    /// keys or signature material.
+    pub fn get_request(env: Env, request_id: u64) -> Option<BridgeRequestSummary> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::BridgeRequest(request_id))
+    }
+
+    /// Return the finalization summary for an inbound operation identified by
+    /// its 32-byte proof hash.
+    ///
+    /// Returns `None` when the proof has not been processed yet.
+    pub fn get_inbound_finalization(env: Env, proof: BytesN<32>) -> Option<BridgeRequestSummary> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::InboundByProof(proof))
+    }
+
+    /// Admin-only: mark an outbound request as `Failed`.
+    ///
+    /// Intended for stuck or expired requests that will never be finalized.
+    /// Returns `RequestNotFound` if `request_id` does not exist.
+    pub fn mark_request_failed(env: Env, request_id: u64) -> Result<(), Error> {
+        require_admin(&env)?;
+        let key = DataKey::BridgeRequest(request_id);
+        let mut record: BridgeRequestSummary = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::RequestNotFound)?;
+        record.status = BridgeRequestStatus::Failed;
+        env.storage().persistent().set(&key, &record);
         Ok(())
     }
 }
@@ -276,8 +438,8 @@ fn verify_quorum(
             continue;
         }
 
-        // Real Ed25519 signature verification
-        // Host panics on failure with Crypto error
+        // Real Ed25519 signature verification.
+        // Host panics on failure with Crypto error.
         env.crypto().ed25519_verify(&pubkey, proof.as_ref(), &sig);
 
         valid_sigs += 1;
@@ -298,14 +460,34 @@ fn mark_processed(env: &Env, proof: &BytesN<32>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Atomically read-and-increment the outbound request nonce.
+fn next_request_id(env: &Env) -> u64 {
+    let id: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::RequestNonce)
+        .unwrap_or(0u64);
+    let next = id.checked_add(1).expect("nonce overflow");
+    env.storage().instance().set(&DataKey::RequestNonce, &next);
+    id
+}
+
+/// Persist an outbound request record with a 30-day TTL bump.
+fn store_request(env: &Env, request_id: u64, record: &BridgeRequestSummary) {
+    const BUMP: u32 = 518_400;
+    let key = DataKey::BridgeRequest(request_id);
+    env.storage().persistent().set(&key, record);
+    env.storage().persistent().extend_ttl(&key, BUMP, BUMP);
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use soroban_sdk::{
         symbol_short,
-        testutils::{Address as _},
+        testutils::Address as _,
         token::{StellarAssetClient, TokenClient},
-        Address, Env, BytesN,
+        Address, BytesN, Env,
     };
     use ed25519_dalek::{SigningKey, Signer, VerifyingKey};
     use rand::rngs::OsRng;
@@ -326,6 +508,8 @@ mod test {
         (client, admin, contract_id, validator_pk, signing_key)
     }
 
+    // ── Existing behaviour ────────────────────────────────────────
+
     #[test]
     fn test_lock_and_release_with_real_sig() {
         let env = Env::default();
@@ -340,7 +524,13 @@ mod test {
 
         token_sac.mint(&user, &1000);
 
-        client.lock(&user, &token_addr, &600, &symbol_short!("SOL"), &String::from_str(&env, "0xabc"));
+        client.lock(
+            &user,
+            &token_addr,
+            &600,
+            &symbol_short!("SOL"),
+            &String::from_str(&env, "0xabc"),
+        );
         assert_eq!(token_client.balance(&user), 400);
         assert_eq!(token_client.balance(&bridge_addr), 600);
 
@@ -364,7 +554,8 @@ mod test {
         env.mock_all_auths();
 
         let user = Address::generate(&env);
-        let token_addr = env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
+        let token_addr =
+            env.register_stellar_asset_contract_v2(Address::generate(&env)).address();
 
         let proof = BytesN::from_array(&env, &[1u8; 32]);
         let bad_sig = BytesN::from_array(&env, &[0u8; 64]);
@@ -397,5 +588,162 @@ mod test {
 
         client.mint_wrapped(&eth_symbol, &1000, &user, &proof, &sigs);
         assert_eq!(token_client.balance(&user), 1000);
+    }
+
+    // ── Request status accessor tests ─────────────────────────────
+
+    #[test]
+    fn test_get_request_initiated_after_lock() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+        env.mock_all_auths();
+
+        let user = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+        StellarAssetClient::new(&env, &token_addr).mint(&user, &1000);
+
+        client.lock(
+            &user,
+            &token_addr,
+            &400,
+            &symbol_short!("ETH"),
+            &String::from_str(&env, "0xdeadbeef"),
+        );
+
+        let summary = client.get_request(&0u64);
+        assert!(summary.is_some());
+        let s = summary.unwrap();
+        assert_eq!(s.request_id, 0u64);
+        assert_eq!(s.status, BridgeRequestStatus::Initiated);
+        assert_eq!(s.direction, BridgeDirection::Outbound);
+        assert_eq!(s.amount, 400);
+    }
+
+    #[test]
+    fn test_get_request_missing_returns_none() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+
+        // No lock has been called; request 99 should not exist.
+        let result = client.get_request(&99u64);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_inbound_finalization_after_release() {
+        let env = Env::default();
+        let (client, _admin, bridge_addr, validator_pk, signing_key) = setup(&env);
+        env.mock_all_auths();
+
+        let user = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+        StellarAssetClient::new(&env, &token_addr).mint(&bridge_addr, &500);
+
+        let proof_bytes = [55u8; 32];
+        let proof = BytesN::from_array(&env, &proof_bytes);
+        let sig_bytes = signing_key.sign(&proof_bytes).to_bytes();
+        let sig = BytesN::from_array(&env, &sig_bytes);
+        let mut sigs = Map::new(&env);
+        sigs.set(validator_pk, sig);
+
+        client.release(&token_addr, &200, &user, &proof, &sigs);
+
+        let summary = client.get_inbound_finalization(&proof);
+        assert!(summary.is_some());
+        let s = summary.unwrap();
+        assert_eq!(s.status, BridgeRequestStatus::Finalized);
+        assert_eq!(s.direction, BridgeDirection::Inbound);
+        assert_eq!(s.amount, 200);
+        assert_eq!(s.proof, proof);
+    }
+
+    #[test]
+    fn test_get_inbound_finalization_missing_returns_none() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+
+        let unknown_proof = BytesN::from_array(&env, &[0xffu8; 32]);
+        let result = client.get_inbound_finalization(&unknown_proof);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_mark_request_failed() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+        env.mock_all_auths();
+
+        let user = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+        StellarAssetClient::new(&env, &token_addr).mint(&user, &1000);
+
+        client.lock(
+            &user,
+            &token_addr,
+            &100,
+            &symbol_short!("BTC"),
+            &String::from_str(&env, "bc1q..."),
+        );
+
+        // Initially Initiated.
+        let before = client.get_request(&0u64).unwrap();
+        assert_eq!(before.status, BridgeRequestStatus::Initiated);
+
+        // Admin marks it failed.
+        client.mark_request_failed(&0u64);
+
+        let after = client.get_request(&0u64).unwrap();
+        assert_eq!(after.status, BridgeRequestStatus::Failed);
+    }
+
+    #[test]
+    fn test_mark_request_failed_unknown_returns_error() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+        env.mock_all_auths();
+
+        let result = client.try_mark_request_failed(&99u64);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sequential_request_ids() {
+        let env = Env::default();
+        let (client, _admin, _bridge_addr, _validator_pk, _signing_key) = setup(&env);
+        env.mock_all_auths();
+
+        let user = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let token_addr = env.register_stellar_asset_contract_v2(token_admin).address();
+        StellarAssetClient::new(&env, &token_addr).mint(&user, &3000);
+
+        client.lock(
+            &user,
+            &token_addr,
+            &100,
+            &symbol_short!("SOL"),
+            &String::from_str(&env, "a"),
+        );
+        client.lock(
+            &user,
+            &token_addr,
+            &200,
+            &symbol_short!("SOL"),
+            &String::from_str(&env, "b"),
+        );
+        client.lock(
+            &user,
+            &token_addr,
+            &300,
+            &symbol_short!("SOL"),
+            &String::from_str(&env, "c"),
+        );
+
+        assert_eq!(client.get_request(&0u64).unwrap().amount, 100);
+        assert_eq!(client.get_request(&1u64).unwrap().amount, 200);
+        assert_eq!(client.get_request(&2u64).unwrap().amount, 300);
     }
 }
