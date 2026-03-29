@@ -1,4 +1,9 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
+import deMessages from './messages/de.json';
+import enMessages from './messages/en.json';
+import esMessages from './messages/es.json';
+import frMessages from './messages/fr.json';
+import jaMessages from './messages/ja.json';
 
 export type Locale = 'en' | 'es' | 'fr' | 'de' | 'ja';
 
@@ -24,18 +29,25 @@ interface I18nContextType {
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
+const STATIC_MESSAGES: Record<Locale, Record<string, string>> = {
+  en: enMessages,
+  es: esMessages,
+  fr: frMessages,
+  de: deMessages,
+  ja: jaMessages,
+};
+
 const messages: Record<Locale, Record<string, string>> = {
-  en: {},
-  es: {},
-  fr: {},
-  de: {},
-  ja: {},
+  en: STATIC_MESSAGES.en,
+  es: STATIC_MESSAGES.es,
+  fr: STATIC_MESSAGES.fr,
+  de: STATIC_MESSAGES.de,
+  ja: STATIC_MESSAGES.ja,
 };
 
 const loadMessages = async (locale: Locale): Promise<Record<string, string>> => {
   try {
-    const module = await import(`./messages/${locale}.json`);
-    return module.default;
+    return STATIC_MESSAGES[locale] ?? {};
   } catch {
     console.warn(`Failed to load messages for locale: ${locale}`);
     return {};

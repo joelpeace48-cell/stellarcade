@@ -5,6 +5,9 @@ import GlobalStateStore from "../src/services/global-state-store";
 import {
   isBannerDismissed,
   persistBannerDismissal,
+  getSavedFilterPresets,
+  saveFilterPreset,
+  deleteSavedFilterPreset,
 } from "../src/services/global-state-store";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { NetworkGuardBanner } from "../src/components/v1/NetworkGuardBanner";
@@ -142,5 +145,33 @@ describe("GlobalStateStore", () => {
 
     const store2 = new GlobalStateStore({ storageKey: "stale_tx_test" });
     expect(store2.getState().pendingTransaction).toBeNull();
+  });
+
+  it("saves and restores filter presets by scope", () => {
+    const saved = saveFilterPreset("events", "High signal", ["coin_flip", "transfer"]);
+    expect(saved?.name).toBe("High signal");
+
+    const presets = getSavedFilterPresets("events");
+    expect(presets).toHaveLength(1);
+    expect(presets[0].values).toEqual(["coin_flip", "transfer"]);
+  });
+
+  it("deletes saved presets without affecting other scopes", () => {
+    const first = saveFilterPreset("events", "Errors", ["error"]);
+    saveFilterPreset("activity", "Wins", ["win"]);
+
+    deleteSavedFilterPreset("events", first?.id ?? "");
+
+    expect(getSavedFilterPresets("events")).toEqual([]);
+    expect(getSavedFilterPresets("activity")).toHaveLength(1);
+  });
+
+  it("overwrites deterministic preset ids within the same scope", () => {
+    saveFilterPreset("events", "Focus", ["coin_flip"]);
+    saveFilterPreset("events", "Focus", ["transfer"]);
+
+    const presets = getSavedFilterPresets("events");
+    expect(presets).toHaveLength(1);
+    expect(presets[0].values).toEqual(["transfer"]);
   });
 });

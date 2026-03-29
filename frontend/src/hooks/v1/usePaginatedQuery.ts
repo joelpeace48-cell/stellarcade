@@ -127,7 +127,14 @@ export function usePaginatedQuery<T>(
     throw new Error("usePaginatedQuery requires an options object");
   }
 
-  const { queryExecutor, initialState, persistState = false, stateKey, dependencies } = options;
+  const {
+    queryExecutor,
+    initialState,
+    persistState = false,
+    stateKey,
+    dependencies,
+    mode = "pagination",
+  } = options;
 
   if (!queryExecutor || typeof queryExecutor !== "function") {
     throw new Error("usePaginatedQuery requires a queryExecutor function");
@@ -214,7 +221,17 @@ export function usePaginatedQuery<T>(
       // Update state based on result
       if (result.success === true) {
         const enriched = enrichPaginatedResult(result.data);
-        setData(enriched);
+        const nextData =
+          mode === "infinite" &&
+          enriched.page > 1 &&
+          data !== null &&
+          state.page > 1
+            ? {
+                ...enriched,
+                items: [...data.items, ...enriched.items],
+              }
+            : enriched;
+        setData(nextData);
         setError(null);
         setIsStale(result.isStale ?? false);
       } else if (result.success === false) {
@@ -236,7 +253,7 @@ export function usePaginatedQuery<T>(
     } finally {
       isExecutingRef.current = false;
     }
-  }, [state, queryExecutor, data]);
+  }, [state, queryExecutor, data, mode]);
 
   // ── Effects ────────────────────────────────────────────────────────────
 
@@ -275,6 +292,10 @@ export function usePaginatedQuery<T>(
       setState((prev) => updatePage(prev, nextPageNum));
     }
   }, [state, data]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    await nextPage();
+  }, [nextPage]);
 
   const prevPage = useCallback(async (): Promise<void> => {
     const prevPageNum = getPreviousPage(state.page);
@@ -337,6 +358,7 @@ export function usePaginatedQuery<T>(
     () => loading === LoadingStateEnum.LOADING || loading === LoadingStateEnum.FETCHING,
     [loading]
   );
+  const hasReachedEnd = useMemo(() => !data?.hasNextPage, [data]);
 
   // ── Return Object ──────────────────────────────────────────────────────────
 
@@ -362,6 +384,8 @@ export function usePaginatedQuery<T>(
     setFilters,
     reset,
     refetch,
+    loadMore,
+    hasReachedEnd,
   };
 }
 

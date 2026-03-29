@@ -6,6 +6,7 @@ import {
   getPersistedEventFeedFilter,
   persistEventFeedFilter,
   clearEventFeedFilter,
+  getSavedFilterPresets,
 } from '@/services/global-state-store';
 
 const mockStart = vi.fn();
@@ -568,6 +569,121 @@ describe('ContractEventFeed - filter persistence', () => {
     persistEventFeedFilter('to-clear', ['coin_flip']);
     clearEventFeedFilter('to-clear');
     expect(getPersistedEventFeedFilter('to-clear')).toBeNull();
+  });
+
+  it('saves, restores, and deletes named filter presets for the active scope', () => {
+    const onToggle = vi.fn();
+    renderFeed({
+      eventTypeFilters: filterChips,
+      onEventTypeFilterToggle: onToggle,
+      persistFilters: true,
+      feedScope: 'preset-scope',
+    });
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-filter-coin_flip'));
+    fireEvent.change(screen.getByTestId('contract-event-feed-preset-name'), {
+      target: { value: 'My Preset' },
+    });
+    fireEvent.click(screen.getByTestId('contract-event-feed-preset-save'));
+
+    expect(getSavedFilterPresets('preset-scope')).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-filter-coin_flip'));
+    expect(screen.getByTestId('contract-event-feed-filter-coin_flip')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    fireEvent.change(screen.getByTestId('contract-event-feed-preset-select'), {
+      target: { value: 'preset-scope::my-preset' },
+    });
+    fireEvent.click(screen.getByTestId('contract-event-feed-preset-restore'));
+    expect(screen.getByTestId('contract-event-feed-filter-coin_flip')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-preset-delete'));
+    expect(getSavedFilterPresets('preset-scope')).toEqual([]);
+  });
+
+  it('keeps named presets isolated between scopes', () => {
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'scope-a',
+    });
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-filter-coin_flip'));
+    fireEvent.change(screen.getByTestId('contract-event-feed-preset-name'), {
+      target: { value: 'Scope A' },
+    });
+    fireEvent.click(screen.getByTestId('contract-event-feed-preset-save'));
+
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'scope-b',
+      testId: 'scope-b-feed',
+    });
+
+    expect(getSavedFilterPresets('scope-a')).toHaveLength(1);
+    expect(getSavedFilterPresets('scope-b')).toEqual([]);
+  });
+});
+
+describe('ContractEventFeed - feed modes', () => {
+  it('loads more rows in infinite-scroll mode and announces the end of the list', async () => {
+    mockEvents = Array.from({ length: 5 }, (_, index) =>
+      makeEvent({ id: `inf-${index}` }),
+    );
+
+    renderFeed({
+      feedMode: 'infinite',
+      pageSize: 2,
+    });
+
+    expect(screen.getAllByTestId(/contract-event-feed-row-inf-/)).toHaveLength(2);
+
+    const list = screen.getByTestId('contract-event-feed-list');
+    Object.defineProperty(list, 'scrollHeight', { value: 400, configurable: true });
+    Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+
+    fireEvent.scroll(list, { target: { scrollTop: 220 } });
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/contract-event-feed-row-inf-/)).toHaveLength(4);
+    });
+
+    fireEvent.scroll(list, { target: { scrollTop: 220 } });
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/contract-event-feed-row-inf-/)).toHaveLength(5);
+      expect(screen.getByTestId('contract-event-feed-feed-status')).toHaveTextContent(
+        /end of event feed/i,
+      );
+    });
+  });
+
+  it('keeps explicit pagination available when feedMode=pagination', async () => {
+    mockEvents = Array.from({ length: 5 }, (_, index) =>
+      makeEvent({ id: `page-${index}` }),
+    );
+
+    renderFeed({
+      feedMode: 'pagination',
+      pageSize: 2,
+    });
+
+    expect(screen.getByTestId('contract-event-feed-pager')).toBeInTheDocument();
+    expect(screen.getByTestId('contract-event-feed-page-label')).toHaveTextContent(
+      /page 1 of 3/i,
+    );
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-page-next'));
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-event-feed-page-label')).toHaveTextContent(
+        /page 2 of 3/i,
+      );
+    });
   });
 });
 

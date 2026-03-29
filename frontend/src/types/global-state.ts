@@ -26,6 +26,15 @@ export interface PendingTransactionSnapshot {
   updatedAt: number;
 }
 
+export interface SavedFilterPreset {
+  id: string;
+  name: string;
+  scope: string;
+  values: string[];
+  version: number;
+  updatedAt: number;
+}
+
 // Complete global state
 export interface GlobalState {
   auth: AuthState;

@@ -225,6 +225,12 @@ nav a:hover, nav a.active {
   min-width: 0;
 }
 
+.lobby-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
 .games-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -287,6 +293,29 @@ nav a:hover, nav a.active {
   margin-bottom: 2rem;
 }
 
+.status-card__metric-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.status-card__metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.status-card__metric-note {
+  color: var(--accent);
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.status-card__metric-caption {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
 .status-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -310,6 +339,13 @@ nav a:hover, nav a.active {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .btn-play:hover {

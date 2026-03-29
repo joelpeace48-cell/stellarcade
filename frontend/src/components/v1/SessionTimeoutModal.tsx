@@ -12,6 +12,7 @@ import WalletSessionService, {
   WALLET_SESSION_WARN_BEFORE_EXPIRY_MS_DEFAULT,
 } from '../../services/wallet-session-service';
 import { WalletSessionState } from '../../types/wallet-session';
+import { useModalStackRegistration } from './modal-stack';
 
 import './SessionTimeoutModal.css';
 
@@ -45,6 +46,7 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
   const [dismissed, setDismissed] = useState(false);
   const expiredHandled = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const modalId = `${testId}-${phase}`;
 
   const tick = useCallback(() => {
     const state = sessionService.getState();
@@ -118,17 +120,6 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     setRemainingMs(Math.max(0, sessionExpiresAtMs - nowMs));
   }, [sessionExpiresAtMs, nowMs]);
 
-  useEffect(() => {
-    if (phase === 'hidden') {
-      return;
-    }
-
-    const firstInteractive = dialogRef.current?.querySelector<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
-    firstInteractive?.focus();
-  }, [phase]);
-
   const secondsLeft = remainingMs === null ? 0 : Math.max(0, Math.ceil(remainingMs / 1000));
 
   const handleExtend = useCallback(() => {
@@ -140,6 +131,7 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
 
   const handleDismiss = useCallback(() => {
     setDismissed(true);
+    setPhase('hidden');
     onDismissWarn?.();
   }, [onDismissWarn]);
 
@@ -150,15 +142,38 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     setDismissed(false);
   }, [onReconnect]);
 
+  const handleRequestClose = useCallback(() => {
+    if (phase === 'warn') {
+      handleDismiss();
+    }
+  }, [handleDismiss, phase]);
+
+  const { isTopModal, stackIndex } = useModalStackRegistration({
+    active: phase !== 'hidden',
+    modalId,
+    onRequestClose: handleRequestClose,
+  });
+
+  useEffect(() => {
+    if (phase === 'hidden' || !isTopModal) {
+      return;
+    }
+
+    const firstInteractive = dialogRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    firstInteractive?.focus();
+  }, [isTopModal, phase]);
+
   const handleDialogKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (phase === 'warn' && event.key === 'Escape') {
+      if (event.key === 'Escape' && isTopModal && phase === 'warn') {
         event.preventDefault();
         handleDismiss();
         return;
       }
 
-      if (event.key !== 'Tab') {
+      if (event.key !== 'Tab' || !isTopModal) {
         return;
       }
 
@@ -182,7 +197,7 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
         first.focus();
       }
     },
-    [handleDismiss, phase],
+    [handleDismiss, isTopModal, phase],
   );
 
   if (phase === 'hidden') {
@@ -193,7 +208,12 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
     <div
       className={`session-timeout-modal__backdrop ${className}`.trim()}
       data-testid={testId}
+      data-modal-stack-index={stackIndex}
+      data-modal-stack-top={isTopModal ? 'true' : 'false'}
+      data-modal-stack-id={modalId}
       role="presentation"
+      style={{ zIndex: 1000 + Math.max(stackIndex, 0) }}
+      aria-hidden={isTopModal ? undefined : 'true'}
     >
       <div
         className="session-timeout-modal__dialog"
@@ -203,6 +223,7 @@ export const SessionTimeoutModal: React.FC<SessionTimeoutModalProps> = ({
         aria-describedby={`${testId}-desc-${phase}`}
         ref={dialogRef}
         onKeyDown={handleDialogKeyDown}
+        data-modal-stack-id={modalId}
       >
         {phase === 'warn' && (
           <>

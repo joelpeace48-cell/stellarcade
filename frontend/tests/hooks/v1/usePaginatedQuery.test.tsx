@@ -883,4 +883,41 @@ describe("usePaginatedQuery Hook", () => {
       });
     });
   });
+
+  describe("Infinite Mode", () => {
+    it("appends later pages when mode=infinite", async () => {
+      const executor = vi.fn(async (state: PaginationState) => {
+        const items =
+          state.page === 1
+            ? [{ id: "1", name: "Item 1" }, { id: "2", name: "Item 2" }]
+            : [{ id: "3", name: "Item 3" }];
+
+        return {
+          success: true as const,
+          data: createResult(items, 3, state.page, state.pageSize),
+        };
+      });
+
+      const { result } = renderHook(() =>
+        usePaginatedQuery({
+          initialState: { ...defaultState, pageSize: 2 },
+          queryExecutor: executor,
+          mode: "infinite",
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.data?.items).toHaveLength(2);
+      });
+
+      await act(async () => {
+        await result.current.loadMore();
+      });
+
+      await waitFor(() => {
+        expect(result.current.data?.items).toHaveLength(3);
+        expect(result.current.hasReachedEnd).toBe(true);
+      });
+    });
+  });
 });

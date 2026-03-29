@@ -16,7 +16,6 @@ import type {
   NumericBounds,
 } from "../../utils/v1/validation";
 import {
-  ValidationErrorCode,
   validateWager,
   validateGameId,
   validateEnum,

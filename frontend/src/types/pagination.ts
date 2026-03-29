@@ -258,6 +258,15 @@ export interface PaginatedQueryOptions<T = unknown> {
    * @default undefined (no dependency tracking)
    */
   dependencies?: unknown[];
+
+  /**
+   * Pagination presentation mode.
+   * - `pagination`: each query result replaces the current page
+   * - `infinite`: later pages are appended to the current items list
+   *
+   * @default "pagination"
+   */
+  mode?: "pagination" | "infinite";
 }
 
 /**
@@ -374,6 +383,17 @@ export interface UsePaginatedQueryResult<T> {
    * Does not change page, pageSize, sort, or filters.
    */
   refetch: () => Promise<void>;
+
+  /**
+   * In infinite mode, appends the next page into the current result set.
+   * In pagination mode, behaves the same as nextPage().
+   */
+  loadMore: () => Promise<void>;
+
+  /**
+   * True when there are no more results to load in the current mode.
+   */
+  hasReachedEnd: boolean;
 }
 
 // ── Validation and Utility Types ───────────────────────────────────────────────

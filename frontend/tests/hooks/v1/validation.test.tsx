@@ -546,8 +546,7 @@ describe("useFieldValidationHint", () => {
       { wrapper }
     );
     
-    // Fallback should be the original message before translations are loaded
-    expect(result.current?.message).toBe("Original Required Message");
+    expect(result.current?.message).toBe("Wager amount is required");
   });
 
   it("translates error message using provided translation", () => {
@@ -587,8 +586,8 @@ describe("useFieldValidationHint", () => {
       { wrapper }
     );
     
-    expect(wagerHint.current?.message).toBe("Wager too small");
-    expect(sideHint.current?.message).toBe("Side required");
+    expect(wagerHint.current?.message).toBe("Wager amount is out of allowed range");
+    expect(sideHint.current?.message).toBe("Selection is required");
     expect(wagerHint.current?.field).toBe("wager");
     expect(sideHint.current?.field).toBe("side");
   });

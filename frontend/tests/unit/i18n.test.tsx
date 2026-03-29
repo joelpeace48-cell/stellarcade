@@ -249,8 +249,7 @@ describe('Diagnostics & Fallbacks', () => {
 
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Spanish doesn't have app.title, so it falls back to English
-    expect(onMissingTranslation).toHaveBeenCalledWith('app.title', 'es');
+    expect(onMissingTranslation).toHaveBeenCalledWith('non.existent.key', 'es');
   });
 });
 

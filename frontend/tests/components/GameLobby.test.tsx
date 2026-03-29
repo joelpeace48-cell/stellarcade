@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { expect, test, vi, describe, it } from 'vitest';
+import { expect, test, vi, describe, it, beforeEach } from 'vitest';
 import GameLobby from '../../src/pages/GameLobby';
 import { ApiClient } from '../../src/services/typed-api-sdk';
 
@@ -26,6 +26,10 @@ vi.mock('../../src/utils/v1/useNetworkGuard', () => ({
     supportedNetworks: ['TESTNET', 'PUBLIC'],
   }),
 }));
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 test('renders GameLobby and fetches games', async () => {
   const mockGames = [
@@ -99,6 +103,71 @@ describe('GameLobby two-column layout', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/No games active/i)).toBeDefined();
+    });
+  });
+
+  it('renders KPI cards with full metric data', async () => {
+    localStorage.setItem(
+      'stc_global_state_v1',
+      JSON.stringify({
+        auth: { isAuthenticated: false },
+        flags: {},
+        pendingTransaction: {
+          operation: 'wallet.deposit',
+          phase: 'SUBMITTING',
+          txHash: 'abc1234567890',
+          startedAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_000,
+        },
+        storedAt: Date.now(),
+      }),
+    );
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 'g1', name: 'Game One', status: 'active', wager: 25 },
+        { id: 'g2', name: 'Game Two', status: 'active', wager: 10 },
+      ],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('lobby-kpi-strip')).toBeInTheDocument();
+      expect(screen.getByText(/No wallet connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/SUBMITTING/i)).toBeInTheDocument();
+      expect(screen.getByTestId('lobby-prize-pool-kpi-balance')).toHaveTextContent('35.00');
+    });
+  });
+
+  it('keeps partial KPI fallbacks readable when only some metrics exist', async () => {
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [{ id: 'g1', name: 'Game One', status: 'active' }],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No pending tx/i)).toBeInTheDocument();
+      expect(screen.getByTestId('lobby-prize-pool-kpi-empty')).toHaveTextContent(
+        /No prize-pool metrics available yet/i,
+      );
+    });
+  });
+
+  it('renders empty-state KPI fallbacks when no metrics are available', async () => {
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No wallet connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/Waiting for the next wallet action/i)).toBeInTheDocument();
+      expect(screen.getByTestId('lobby-prize-pool-kpi-empty')).toBeInTheDocument();
     });
   });
 });

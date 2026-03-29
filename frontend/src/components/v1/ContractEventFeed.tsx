@@ -19,8 +19,12 @@ import {
   getPersistedEventFeedFilter,
   persistEventFeedFilter,
   clearEventFeedFilter,
+  deleteSavedFilterPreset,
+  getSavedFilterPresets,
+  saveFilterPreset,
 } from '../../services/global-state-store';
 import type { ContractEvent } from '../../types/contracts/events';
+import type { SavedFilterPreset } from '../../types/global-state';
 import './ContractEventFeed.css';
 
 export type EventSeverity = 'info' | 'warning' | 'error' | 'success';
@@ -98,6 +102,10 @@ export interface ContractEventFeedProps {
    * Use a custom value when multiple feeds share the same contractId.
    */
   feedScope?: string;
+  feedMode?: 'pagination' | 'infinite';
+  pageSize?: number;
+  presetScope?: string;
+  showFilterPresets?: boolean;
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'idle';
@@ -216,14 +224,24 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   virtualizedOverscan = DEFAULT_VIRTUAL_OVERSCAN,
   persistFilters = false,
   feedScope,
+  feedMode = 'pagination',
+  pageSize = 25,
+  presetScope,
+  showFilterPresets = true,
 }) => {
   // ── Filter persistence ─────────────────────────────────────────────────────
   // Stable scope key isolates persisted state so different feeds don't collide.
   const resolvedScope = feedScope ?? contractId;
+  const resolvedPresetScope = presetScope ?? resolvedScope;
 
   // Internal active-filter state used when persistFilters=true.
   // Null means "not yet initialised" (restored from storage on first render).
   const [persistedActiveFilters, setPersistedActiveFilters] = useState<string[] | null>(null);
+  const [presetName, setPresetName] = useState('');
+  const [savedPresets, setSavedPresets] = useState<SavedFilterPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [visiblePages, setVisiblePages] = useState(1);
   const filterInitialisedRef = useRef(false);
   const isContractIdValid =
     typeof contractId === 'string' && contractId.trim().length > 0;
@@ -262,6 +280,10 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     filterInitialisedRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistFilters, resolvedScope]);
+
+  useEffect(() => {
+    setSavedPresets(getSavedFilterPresets(resolvedPresetScope));
+  }, [resolvedPresetScope]);
 
   useEffect(() => {
     const prev = prevListeningRef.current;
@@ -347,6 +369,11 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   ]);
 
   useEffect(() => {
+    setCurrentPage(1);
+    setVisiblePages(1);
+  }, [feedMode, filteredEvents, pageSize]);
+
+  useEffect(() => {
     if (!onNewEvent) return;
     const newCount = filteredEvents.length - prevEventCountRef.current;
     if (newCount > 0) {
@@ -380,6 +407,15 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     clear();
   }, [clear, persistFilters, resolvedScope]);
 
+  const currentActiveFilters = useMemo(() => {
+    if (persistFilters && persistedActiveFilters !== null) {
+      return persistedActiveFilters;
+    }
+    return (eventTypeFilters ?? [])
+      .filter((filter) => filter.active)
+      .map((filter) => filter.value);
+  }, [eventTypeFilters, persistFilters, persistedActiveFilters]);
+
   /**
    * Persistence-aware filter toggle handler.
    * When persistFilters=true, updates internal persisted state and writes to
@@ -402,15 +438,82 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     [persistFilters, resolvedScope, onEventTypeFilterToggle],
   );
 
+  const applyPresetValues = useCallback(
+    (values: string[]) => {
+      const nextValues = values.filter((value): value is string => typeof value === 'string');
+      const currentValues = new Set(currentActiveFilters);
+      const targetValues = new Set(nextValues);
+      const knownValues = new Set((eventTypeFilters ?? []).map((filter) => filter.value));
+
+      knownValues.forEach((value) => {
+        const shouldBeActive = targetValues.has(value);
+        const isActive = currentValues.has(value);
+        if (shouldBeActive !== isActive) {
+          onEventTypeFilterToggle?.(value);
+        }
+      });
+
+      if (persistFilters) {
+        persistEventFeedFilter(resolvedScope, nextValues);
+        setPersistedActiveFilters(nextValues);
+      }
+    },
+    [currentActiveFilters, eventTypeFilters, onEventTypeFilterToggle, persistFilters, resolvedScope],
+  );
+
+  const handleSavePreset = useCallback(() => {
+    const saved = saveFilterPreset(resolvedPresetScope, presetName, currentActiveFilters);
+    if (!saved) {
+      return;
+    }
+
+    const nextPresets = getSavedFilterPresets(resolvedPresetScope);
+    setSavedPresets(nextPresets);
+    setSelectedPresetId(saved.id);
+    setPresetName('');
+  }, [currentActiveFilters, presetName, resolvedPresetScope]);
+
+  const handleRestorePreset = useCallback(() => {
+    const preset = savedPresets.find((entry) => entry.id === selectedPresetId);
+    if (!preset) {
+      return;
+    }
+    applyPresetValues(preset.values);
+  }, [applyPresetValues, savedPresets, selectedPresetId]);
+
+  const handleDeletePreset = useCallback(() => {
+    if (!selectedPresetId) {
+      return;
+    }
+    deleteSavedFilterPreset(resolvedPresetScope, selectedPresetId);
+    const nextPresets = getSavedFilterPresets(resolvedPresetScope);
+    setSavedPresets(nextPresets);
+    setSelectedPresetId('');
+  }, [resolvedPresetScope, selectedPresetId]);
+  const totalPages =
+    filteredEvents.length > 0 ? Math.ceil(filteredEvents.length / pageSize) : 0;
+  const hasNextPage =
+    feedMode === 'infinite'
+      ? visiblePages < totalPages
+      : currentPage < totalPages;
+  const hasPreviousPage = feedMode === 'pagination' && currentPage > 1;
+  const renderedEvents =
+    feedMode === 'infinite'
+      ? filteredEvents.slice(0, visiblePages * pageSize)
+      : filteredEvents.slice(
+          Math.max(0, (currentPage - 1) * pageSize),
+          Math.max(0, (currentPage - 1) * pageSize) + pageSize,
+        );
+
   const shouldVirtualize =
-    filteredEvents.length >= virtualizationThreshold &&
+    renderedEvents.length >= virtualizationThreshold &&
     virtualizedItemHeight > 0;
 
   useEffect(() => {
     const listNode = listRef.current;
     if (!listNode) return;
     setViewportHeight(listNode.clientHeight || DEFAULT_LIST_HEIGHT_PX);
-  }, [shouldVirtualize, filteredEvents.length]);
+  }, [shouldVirtualize, renderedEvents.length]);
 
   useEffect(() => {
     if (!shouldVirtualize) {
@@ -422,7 +525,7 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     if (!shouldVirtualize) {
       return {
         startIndex: 0,
-        endIndex: filteredEvents.length,
+        endIndex: renderedEvents.length,
         topSpacerHeight: 0,
         bottomSpacerHeight: 0,
       };
@@ -437,7 +540,7 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
       Math.floor(scrollTop / virtualizedItemHeight) - virtualizedOverscan,
     );
     const endIndex = Math.min(
-      filteredEvents.length,
+      renderedEvents.length,
       startIndex + visibleCount + virtualizedOverscan * 2,
     );
 
@@ -446,10 +549,10 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
       endIndex,
       topSpacerHeight: startIndex * virtualizedItemHeight,
       bottomSpacerHeight:
-        Math.max(0, filteredEvents.length - endIndex) * virtualizedItemHeight,
+        Math.max(0, renderedEvents.length - endIndex) * virtualizedItemHeight,
     };
   }, [
-    filteredEvents.length,
+    renderedEvents.length,
     scrollTop,
     shouldVirtualize,
     viewportHeight,
@@ -458,19 +561,35 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   ]);
 
   const visibleEvents = shouldVirtualize
-    ? filteredEvents.slice(
+    ? renderedEvents.slice(
         virtualizationWindow.startIndex,
         virtualizationWindow.endIndex,
       )
-    : filteredEvents;
+    : renderedEvents;
 
   const handleListScroll = useCallback(
     (event: React.UIEvent<HTMLOListElement>) => {
-      if (!shouldVirtualize) return;
-      setScrollTop(event.currentTarget.scrollTop);
-      setViewportHeight(event.currentTarget.clientHeight || DEFAULT_LIST_HEIGHT_PX);
+      const nextScrollTop = event.currentTarget.scrollTop;
+      const nextViewportHeight =
+        event.currentTarget.clientHeight || DEFAULT_LIST_HEIGHT_PX;
+
+      if (shouldVirtualize) {
+        setScrollTop(nextScrollTop);
+        setViewportHeight(nextViewportHeight);
+      }
+
+      if (
+        feedMode === 'infinite' &&
+        hasNextPage
+      ) {
+        const distanceFromBottom =
+          event.currentTarget.scrollHeight - (nextScrollTop + nextViewportHeight);
+        if (distanceFromBottom <= 96) {
+          setVisiblePages((prev) => Math.min(totalPages, prev + 1));
+        }
+      }
     },
-    [shouldVirtualize],
+    [feedMode, hasNextPage, shouldVirtualize, totalPages],
   );
 
   if (!isContractIdValid) {
@@ -588,6 +707,65 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
         </div>
       )}
 
+      {showFilterPresets && eventTypeFilters && eventTypeFilters.length > 0 && (
+        <div className="cef__presets" data-testid={`${testId}-presets`}>
+          <label className="cef__preset-field">
+            <span className="cef__preset-label">Preset name</span>
+            <input
+              type="text"
+              className="cef__preset-input"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+              placeholder="High-signal wins"
+              data-testid={`${testId}-preset-name`}
+            />
+          </label>
+          <button
+            type="button"
+            className="cef__preset-button"
+            onClick={handleSavePreset}
+            disabled={!presetName.trim() || currentActiveFilters.length === 0}
+            data-testid={`${testId}-preset-save`}
+          >
+            Save preset
+          </button>
+          <label className="cef__preset-field">
+            <span className="cef__preset-label">Saved presets</span>
+            <select
+              className="cef__preset-select"
+              value={selectedPresetId}
+              onChange={(event) => setSelectedPresetId(event.target.value)}
+              data-testid={`${testId}-preset-select`}
+            >
+              <option value="">Select preset</option>
+              {savedPresets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="cef__preset-button"
+            onClick={handleRestorePreset}
+            disabled={!selectedPresetId}
+            data-testid={`${testId}-preset-restore`}
+          >
+            Restore
+          </button>
+          <button
+            type="button"
+            className="cef__preset-button cef__preset-button--danger"
+            onClick={handleDeletePreset}
+            disabled={!selectedPresetId}
+            data-testid={`${testId}-preset-delete`}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
       {mappedError && (
         <ErrorNotice
           error={mappedError}
@@ -598,17 +776,17 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
         />
       )}
 
-      {filteredEvents.length > 0 ? (
+      {renderedEvents.length > 0 ? (
         <>
           <span className="cef__sr-only" aria-live="polite" data-testid={`${testId}-virtualization`}>
             {shouldVirtualize
-              ? `Virtualized list showing ${visibleEvents.length} rows out of ${filteredEvents.length}.`
+              ? `Virtualized list showing ${visibleEvents.length} rows out of ${renderedEvents.length}.`
               : 'Standard list rendering active.'}
           </span>
           <ol
             ref={listRef}
             className={`cef__event-list${shouldVirtualize ? ' cef__event-list--virtualized' : ''}`}
-            aria-label={`${filteredEvents.length} contract events`}
+            aria-label={`${renderedEvents.length} contract events`}
             data-testid={`${testId}-list`}
             data-virtualized={shouldVirtualize ? 'true' : 'false'}
             reversed={!shouldVirtualize}
@@ -640,6 +818,38 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
               />
             )}
           </ol>
+          {feedMode === 'pagination' && totalPages > 1 && (
+            <div className="cef__pager" data-testid={`${testId}-pager`}>
+              <button
+                type="button"
+                className="cef__preset-button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={!hasPreviousPage}
+                data-testid={`${testId}-page-prev`}
+              >
+                Previous
+              </button>
+              <span className="cef__pager-label" data-testid={`${testId}-page-label`}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="cef__preset-button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={!hasNextPage}
+                data-testid={`${testId}-page-next`}
+              >
+                Next
+              </button>
+            </div>
+          )}
+          {feedMode === 'infinite' && (
+            <div className="cef__feed-status" data-testid={`${testId}-feed-status`}>
+              {hasNextPage
+                ? 'Scroll to load more events.'
+                : 'End of event feed'}
+            </div>
+          )}
         </>
       ) : (
         !mappedError && (

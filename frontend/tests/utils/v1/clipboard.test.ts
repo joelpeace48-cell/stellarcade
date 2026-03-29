@@ -61,9 +61,10 @@ describe('clipboard utility', () => {
   });
 
   it('uses document.execCommand if navigator.clipboard is unavailable', async () => {
-    // Remove navigator.clipboard entirely
-    // @ts-expect-error - testing
-    delete navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      configurable: true,
+    });
 
     const execCommandMock = vi.fn().mockReturnValue(true);
     document.execCommand = execCommandMock;
@@ -75,9 +76,10 @@ describe('clipboard utility', () => {
   });
 
   it('returns false if both APIs fail', async () => {
-    // Remove navigator.clipboard entirely
-    // @ts-expect-error - testing
-    delete navigator.clipboard;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      configurable: true,
+    });
 
     // Fail document.execCommand
     const execCommandMock = vi.fn().mockReturnValue(false);

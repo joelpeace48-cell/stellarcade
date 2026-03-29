@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import GameLobby from './pages/GameLobby';
 import { I18nProvider, useI18n } from './i18n/provider';
 import LocaleSwitcher from './components/LocaleSwitcher';
+import { ModalStackProvider } from './components/v1/modal-stack';
 
 const DevContractCallSimulatorPanel = import.meta.env.DEV
   ? lazy(() =>
@@ -107,7 +108,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <I18nProvider>
-      <AppContent />
+      <ModalStackProvider>
+        <AppContent />
+      </ModalStackProvider>
     </I18nProvider>
   );
 };

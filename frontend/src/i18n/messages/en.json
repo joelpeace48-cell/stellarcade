@@ -46,6 +46,6 @@
   "validation.recipient.required": "Recipient address is required",
   "validation.walletaddress.required": "Wallet is not connected. Connect a wallet before playing.",
   "validation.network.invalid_format": "Network mismatch. Please switch to the correct network.",
-  "validation.contractaddress.required": "Contract address is not configured."
+  "validation.contractaddress.required": "Contract address is not configured.",
   "locale.reset": "Reset to Default"
 }

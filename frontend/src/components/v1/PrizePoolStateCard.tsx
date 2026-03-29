@@ -18,6 +18,12 @@ export interface PrizePoolStateCardProps {
     testId?: string;
     /** Currency symbol or code to display */
     currency?: string;
+    /** Optional status label override */
+    statusLabel?: string;
+    /** Optional helper copy when state is unavailable */
+    emptyMessage?: string;
+    /** Optional footer metadata for compact summaries */
+    footerMeta?: string | null;
 }
 
 /**
@@ -34,6 +40,9 @@ export const PrizePoolStateCard: React.FC<PrizePoolStateCardProps> = ({
     className = '',
     testId = 'prizepool-state-card',
     currency = 'XLM',
+    statusLabel,
+    emptyMessage = 'Waiting for prize-pool metrics.',
+    footerMeta,
 }) => {
     const containerClasses = [
         'prizepool-state-card',
@@ -97,15 +106,25 @@ export const PrizePoolStateCard: React.FC<PrizePoolStateCardProps> = ({
                 )}
             </div>
 
+            {!isLoading && !state && (
+                <p className="prizepool-state-card__empty" data-testid={`${testId}-empty`}>
+                    {emptyMessage}
+                </p>
+            )}
+
             <div className="prizepool-state-card__footer">
                 <div className="prizepool-state-card__status">
                     <span className="prizepool-state-card__status-dot" />
-                    <span>{isLoading ? 'Updating...' : 'Live Data'}</span>
+                    <span>{statusLabel ?? (isLoading ? 'Updating...' : 'Live Data')}</span>
                 </div>
-                {!compact && state?.admin && (
-                    <div className="prizepool-state-card__admin">
-                        Admin: {state.admin.slice(0, 4)}...{state.admin.slice(-4)}
-                    </div>
+                {footerMeta ? (
+                    <div className="prizepool-state-card__admin">{footerMeta}</div>
+                ) : (
+                    !compact && state?.admin ? (
+                        <div className="prizepool-state-card__admin">
+                            Admin: {state.admin.slice(0, 4)}...{state.admin.slice(-4)}
+                        </div>
+                    ) : null
                 )}
             </div>
         </div>
