@@ -58,4 +58,22 @@ describe("StatusCard", () => {
     expect(screen.getByTestId("before")).toBeDefined();
     expect(screen.getByTestId("after")).toBeDefined();
   });
+
+  it("renders stale badge and applies stale classes when isStale is true", () => {
+    render(
+      <StatusCard
+        id="g1"
+        name="N"
+        status="S"
+        isStale={true}
+      />
+    );
+
+    expect(screen.getByTestId("status-card-stale-badge")).toBeInTheDocument();
+    expect(screen.getByText("Stale")).toBeInTheDocument();
+    
+    const card = screen.getByTestId("status-card");
+    expect(card.className).toContain("is-stale");
+    expect(card.className).toContain("opacity-75");
+  });
 });

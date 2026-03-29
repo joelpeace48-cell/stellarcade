@@ -67,3 +67,65 @@ describe('AsyncStateBoundary', () => {
     expect(screen.getByText('custom')).toBeInTheDocument();
   });
 });
+
+describe('AsyncStateBoundary Stale Data', () => {
+  it('renders success branch with stale banner when status is error but data exists and showStale is true', () => {
+    const data = { id: 'stale-1' };
+    render(
+      <AsyncStateBoundary
+        status="error"
+        data={data}
+        showStale={true}
+        renderSuccess={(d) => <div data-testid="success-content">{d.id}</div>}
+      />,
+    );
+
+    expect(screen.getByTestId('async-state-boundary-stale-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('success-content')).toHaveTextContent('stale-1');
+  });
+
+  it('renders success branch with stale banner and retry button', () => {
+    const onRetry = vi.fn();
+    render(
+      <AsyncStateBoundary
+        status="error"
+        data={{ id: '1' }}
+        showStale={true}
+        onRetry={onRetry}
+        renderSuccess={() => <div>ok</div>}
+      />,
+    );
+
+    const retryButton = screen.getByTestId('async-state-boundary-stale-retry');
+    fireEvent.click(retryButton);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders error branch when status is error and data exists but showStale is false', () => {
+    render(
+      <AsyncStateBoundary
+        status="error"
+        data={{ id: '1' }}
+        showStale={false}
+        renderSuccess={() => <div>ok</div>}
+      />,
+    );
+
+    expect(screen.getByTestId('async-state-boundary-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('async-state-boundary-stale-banner')).not.toBeInTheDocument();
+  });
+
+  it('uses custom stale message', () => {
+    render(
+      <AsyncStateBoundary
+        status="error"
+        data={{ id: '1' }}
+        showStale={true}
+        staleMessage="Custom stale message"
+        renderSuccess={() => <div>ok</div>}
+      />,
+    );
+
+    expect(screen.getByText('Custom stale message')).toBeInTheDocument();
+  });
+});
