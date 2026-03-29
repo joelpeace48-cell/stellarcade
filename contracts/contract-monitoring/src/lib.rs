@@ -4,9 +4,9 @@
 use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};
 
 pub const PERSISTENT_BUMP_LEDGERS: u32 = 518_400;
-const FAILED_SETTLEMENT_ALERT_THRESHOLD: u64 = 3;
-const ERROR_RATE_ALERT_PERCENT: u64 = 20;
-const ERROR_RATE_MIN_SAMPLE: u64 = 10;
+const DEFAULT_FAILED_SETTLEMENT_ALERT_THRESHOLD: u64 = 3;
+const DEFAULT_ERROR_RATE_ALERT_PERCENT: u64 = 20;
+const DEFAULT_ERROR_RATE_MIN_SAMPLE: u64 = 10;
 pub const MAX_RECENT_EVENTS: u32 = 200;
 
 #[contracterror]
@@ -18,6 +18,7 @@ pub enum Error {
     NotAuthorized = 3,
     DuplicateEvent = 4,
     InvalidWindowSize = 5,
+    InvalidThreshold = 6,
 }
 
 #[contracttype]
@@ -26,6 +27,7 @@ pub enum DataKey {
     Admin,
     Paused,
     Metrics,
+    Thresholds,
     SeenEvent(u64),
     RecentEvents,
 }
@@ -65,6 +67,33 @@ pub struct HealthSnapshot {
     pub failed_settlement_alert: bool,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AlertThresholds {
+    pub failed_settlement_count: u64,
+    pub error_rate_percent: u64,
+    pub error_rate_min_sample: u64,
+}
+
+impl Default for AlertThresholds {
+    fn default() -> Self {
+        Self {
+            failed_settlement_count: DEFAULT_FAILED_SETTLEMENT_ALERT_THRESHOLD,
+            error_rate_percent: DEFAULT_ERROR_RATE_ALERT_PERCENT,
+            error_rate_min_sample: DEFAULT_ERROR_RATE_MIN_SAMPLE,
+        }
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MonitoringSnapshot {
+    pub initialized: bool,
+    pub thresholds: AlertThresholds,
+    pub metrics: Metrics,
+    pub health: HealthSnapshot,
+}
+
 #[contractevent]
 pub struct EventIngested {
     #[topic]
@@ -92,6 +121,7 @@ impl ContractMonitoring {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.storage().instance().set(&DataKey::Metrics, &Metrics::default());
+        env.storage().instance().set(&DataKey::Thresholds, &AlertThresholds::default());
         Ok(())
     }
 
@@ -121,7 +151,8 @@ impl ContractMonitoring {
 
         EventIngested { event_id, kind: kind.clone() }.publish(&env);
 
-        let health = evaluate_health(&metrics, is_paused(&env));
+        let thresholds = get_thresholds(&env);
+        let health = evaluate_health(&metrics, is_paused(&env), &thresholds);
         if health.failed_settlement_alert {
             AlertRaised { alert: 1 }.publish(&env);
         }
@@ -141,12 +172,43 @@ impl ContractMonitoring {
         Ok(())
     }
 
+    pub fn set_alert_thresholds(
+        env: Env,
+        admin: Address,
+        thresholds: AlertThresholds,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        validate_thresholds(&thresholds)?;
+        env.storage().instance().set(&DataKey::Thresholds, &thresholds);
+        Ok(())
+    }
+
+    pub fn get_alert_thresholds(env: Env) -> AlertThresholds {
+        get_thresholds(&env)
+    }
+
     pub fn get_metrics(env: Env) -> Metrics {
         env.storage().instance().get(&DataKey::Metrics).unwrap_or_default()
     }
 
     pub fn get_health(env: Env) -> HealthSnapshot {
-        evaluate_health(&Self::get_metrics(env.clone()), is_paused(&env))
+        let thresholds = get_thresholds(&env);
+        evaluate_health(&Self::get_metrics(env.clone()), is_paused(&env), &thresholds)
+    }
+
+    pub fn get_snapshot(env: Env) -> MonitoringSnapshot {
+        let thresholds = get_thresholds(&env);
+        let metrics = Self::get_metrics(env.clone());
+        let paused = is_paused(&env);
+        let health = evaluate_health(&metrics, paused, &thresholds);
+
+        MonitoringSnapshot {
+            initialized: env.storage().instance().has(&DataKey::Admin),
+            thresholds,
+            metrics,
+            health,
+        }
     }
 
     pub fn get_sliding_window_metrics(env: Env, window_seconds: u64) -> Result<Metrics, Error> {
@@ -183,6 +245,26 @@ fn is_paused(env: &Env) -> bool {
     env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
 }
 
+fn get_thresholds(env: &Env) -> AlertThresholds {
+    env.storage()
+        .instance()
+        .get(&DataKey::Thresholds)
+        .unwrap_or_default()
+}
+
+fn validate_thresholds(thresholds: &AlertThresholds) -> Result<(), Error> {
+    if thresholds.failed_settlement_count == 0 {
+        return Err(Error::InvalidThreshold);
+    }
+    if thresholds.error_rate_percent == 0 || thresholds.error_rate_percent > 100 {
+        return Err(Error::InvalidThreshold);
+    }
+    if thresholds.error_rate_min_sample == 0 {
+        return Err(Error::InvalidThreshold);
+    }
+    Ok(())
+}
+
 fn apply_event(metrics: &mut Metrics, kind: &EventKind) {
     metrics.total_events = metrics.total_events.saturating_add(1);
     match kind {
@@ -194,9 +276,14 @@ fn apply_event(metrics: &mut Metrics, kind: &EventKind) {
     }
 }
 
-fn evaluate_health(metrics: &Metrics, paused: bool) -> HealthSnapshot {
-    let high_error_rate = is_high_error_rate(metrics.error_events, metrics.total_events);
-    let failed_settlement_alert = metrics.settlement_failed >= FAILED_SETTLEMENT_ALERT_THRESHOLD;
+fn evaluate_health(metrics: &Metrics, paused: bool, thresholds: &AlertThresholds) -> HealthSnapshot {
+    let high_error_rate = is_high_error_rate(
+        metrics.error_events,
+        metrics.total_events,
+        thresholds.error_rate_percent,
+        thresholds.error_rate_min_sample,
+    );
+    let failed_settlement_alert = metrics.settlement_failed >= thresholds.failed_settlement_count;
 
     HealthSnapshot {
         paused,
@@ -205,11 +292,16 @@ fn evaluate_health(metrics: &Metrics, paused: bool) -> HealthSnapshot {
     }
 }
 
-fn is_high_error_rate(error_events: u64, total_events: u64) -> bool {
-    if total_events < ERROR_RATE_MIN_SAMPLE || total_events == 0 {
+fn is_high_error_rate(
+    error_events: u64,
+    total_events: u64,
+    error_rate_percent: u64,
+    error_rate_min_sample: u64,
+) -> bool {
+    if total_events < error_rate_min_sample || total_events == 0 {
         return false;
     }
-    (error_events.saturating_mul(100) / total_events) >= ERROR_RATE_ALERT_PERCENT
+    (error_events.saturating_mul(100) / total_events) >= error_rate_percent
 }
 
 #[cfg(test)]
@@ -219,10 +311,10 @@ mod tests {
 
     #[test]
     fn marks_error_rate_when_threshold_crossed() {
-        assert!(!is_high_error_rate(1, 5));
-        assert!(!is_high_error_rate(1, 10));
-        assert!(is_high_error_rate(2, 10));
-        assert!(is_high_error_rate(3, 10));
+        assert!(!is_high_error_rate(1, 5, 20, 10));
+        assert!(!is_high_error_rate(1, 10, 20, 10));
+        assert!(is_high_error_rate(2, 10, 20, 10));
+        assert!(is_high_error_rate(3, 10, 20, 10));
     }
 
     #[test]
@@ -275,6 +367,84 @@ mod tests {
         // Window 1000s. All 3 included.
         let m = client.get_sliding_window_metrics(&1000);
         assert_eq!(m.total_events, 3);
+    }
+
+    #[test]
+    fn snapshot_is_available_before_init_with_defaults() {
+        let env = Env::default();
+        let contract_id = env.register(ContractMonitoring, ());
+        let client = ContractMonitoringClient::new(&env, &contract_id);
+
+        let snap = client.get_snapshot();
+        assert_eq!(snap.initialized, false);
+        assert_eq!(snap.metrics, Metrics::default());
+        assert_eq!(snap.thresholds, AlertThresholds::default());
+        assert_eq!(snap.health.paused, false);
+        assert_eq!(snap.health.high_error_rate, false);
+        assert_eq!(snap.health.failed_settlement_alert, false);
+    }
+
+    #[test]
+    fn thresholds_can_be_updated_by_admin_and_affect_snapshot() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let contract_id = env.register(ContractMonitoring, ());
+        let client = ContractMonitoringClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        let new_thresholds = AlertThresholds {
+            failed_settlement_count: 1,
+            error_rate_percent: 10,
+            error_rate_min_sample: 2,
+        };
+        client.set_alert_thresholds(&admin, &new_thresholds);
+        assert_eq!(client.get_alert_thresholds(), new_thresholds);
+
+        client.ingest_event(&admin, &1, &EventKind::SettlementFailed);
+        let snap = client.get_snapshot();
+        assert_eq!(snap.thresholds, new_thresholds);
+        assert_eq!(snap.health.failed_settlement_alert, true);
+    }
+
+    #[test]
+    fn threshold_updates_require_admin_auth() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let other = Address::generate(&env);
+        let contract_id = env.register(ContractMonitoring, ());
+        let client = ContractMonitoringClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        let thresholds = AlertThresholds {
+            failed_settlement_count: 5,
+            error_rate_percent: 25,
+            error_rate_min_sample: 10,
+        };
+        let res = client.try_set_alert_thresholds(&other, &thresholds);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn invalid_thresholds_are_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let contract_id = env.register(ContractMonitoring, ());
+        let client = ContractMonitoringClient::new(&env, &contract_id);
+        client.init(&admin);
+
+        let bad = AlertThresholds {
+            failed_settlement_count: 0,
+            error_rate_percent: 0,
+            error_rate_min_sample: 0,
+        };
+        let res = client.try_set_alert_thresholds(&admin, &bad);
+        assert!(res.is_err());
     }
 
     #[test]
