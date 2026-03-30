@@ -1,0 +1,266 @@
+/**
+ * MultiStepProgressIndicator Styles
+ *
+ * Multi-step progress display with visual connectors and status indicators.
+ */
+
+.multi-step-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative;
+}
+
+/* ── Track container ── */
+
+.multi-step-progress__track {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: relative;
+}
+
+/* ── Individual step ── */
+
+.multi-step-progress__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.multi-step-progress__step--clickable {
+  cursor: pointer;
+}
+
+.multi-step-progress__step--clickable:hover {
+  background-color: rgba(0, 255, 204, 0.05);
+}
+
+.multi-step-progress__step--clickable:focus-visible {
+  outline: 2px solid #00ffcc;
+  outline-offset: 2px;
+}
+
+/* ── Step indicator (circle/icon) ── */
+
+.multi-step-progress__step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+.multi-step-progress__step-number {
+  display: inline-block;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.multi-step-progress__step-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.multi-step-progress__step-icon {
+  display: inline-block;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* ── Step content (label + description) ── */
+
+.multi-step-progress__step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  padding-top: 0.25rem;
+}
+
+.multi-step-progress__step-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.multi-step-progress__step-description {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.3;
+}
+
+/* ── Step status: pending ── */
+
+.multi-step-progress__step--pending .multi-step-progress__step-indicator {
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.multi-step-progress__step--pending .multi-step-progress__step-label {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Step status: active ── */
+
+.multi-step-progress__step--active .multi-step-progress__step-indicator {
+  background-color: rgba(0, 255, 204, 0.2);
+  border: 2px solid #00ffcc;
+  color: #00ffcc;
+  box-shadow: 0 0 12px rgba(0, 255, 204, 0.4);
+}
+
+.multi-step-progress__step--active .multi-step-progress__step-label {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.multi-step-progress__step--active .multi-step-progress__step-description {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Step status: completed ── */
+
+.multi-step-progress__step--completed .multi-step-progress__step-indicator {
+  background-color: rgba(0, 255, 136, 0.2);
+  border: 2px solid #00ff88;
+  color: #00ff88;
+}
+
+.multi-step-progress__step--completed .multi-step-progress__step-label {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* ── Step status: error ── */
+
+.multi-step-progress__step--error .multi-step-progress__step-indicator {
+  background-color: rgba(255, 102, 102, 0.2);
+  border: 2px solid #ff6666;
+  color: #ff6666;
+  box-shadow: 0 0 12px rgba(255, 102, 102, 0.4);
+}
+
+.multi-step-progress__step--error .multi-step-progress__step-label {
+  color: #ff6666;
+  font-weight: 700;
+}
+
+/* ── Connector lines ── */
+
+.multi-step-progress__connectors {
+  position: absolute;
+  left: 1.25rem;
+  top: 2.5rem;
+  width: 2px;
+  height: calc(100% - 2.5rem);
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.multi-step-progress__connector {
+  flex: 1;
+  background-color: rgba(255, 255, 255, 0.1);
+  transition: background-color 0.2s ease;
+}
+
+.multi-step-progress__connector--completed {
+  background-color: #00ff88;
+}
+
+.multi-step-progress__connector--active {
+  background-color: #00ffcc;
+}
+
+/* ── Size variants ── */
+
+.multi-step-progress--small .multi-step-progress__step-indicator {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.875rem;
+}
+
+.multi-step-progress--small .multi-step-progress__step-label {
+  font-size: 0.8125rem;
+}
+
+.multi-step-progress--small .multi-step-progress__step-description {
+  font-size: 0.6875rem;
+}
+
+.multi-step-progress--small .multi-step-progress__connectors {
+  left: 1rem;
+}
+
+.multi-step-progress--large .multi-step-progress__step-indicator {
+  width: 3rem;
+  height: 3rem;
+  font-size: 1.125rem;
+}
+
+.multi-step-progress--large .multi-step-progress__step-label {
+  font-size: 0.9375rem;
+}
+
+.multi-step-progress--large .multi-step-progress__step-description {
+  font-size: 0.8125rem;
+}
+
+.multi-step-progress--large .multi-step-progress__connectors {
+  left: 1.5rem;
+}
+
+/* ── Error state ── */
+
+.multi-step-progress--error {
+  opacity: 0.95;
+}
+
+/* ── Accessibility ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .multi-step-progress__step,
+  .multi-step-progress__step-indicator,
+  .multi-step-progress__connector {
+    transition: none;
+  }
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 480px) {
+  .multi-step-progress__step {
+    gap: 0.75rem;
+    padding: 0.5rem;
+  }
+
+  .multi-step-progress__step-indicator {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.875rem;
+  }
+
+  .multi-step-progress__step-label {
+    font-size: 0.75rem;
+  }
+
+  .multi-step-progress__step-description {
+    font-size: 0.625rem;
+  }
+
+  .multi-step-progress__connectors {
+    left: 1rem;
+  }
+}

@@ -22,7 +22,11 @@ import {
   deleteSavedFilterPreset,
   getSavedFilterPresets,
   saveFilterPreset,
+  getRecentFilters,
+  recordRecentFilter,
+  clearRecentFilters,
 } from '../../services/global-state-store';
+import type { RecentFilterEntry } from '../../services/global-state-store';
 import type { ContractEvent } from '../../types/contracts/events';
 import type { SavedFilterPreset } from '../../types/global-state';
 import './ContractEventFeed.css';
@@ -106,6 +110,8 @@ export interface ContractEventFeedProps {
   pageSize?: number;
   presetScope?: string;
   showFilterPresets?: boolean;
+  /** Show recent filter chip rail above the event list. Default true when persistFilters=true. */
+  showRecentFilters?: boolean;
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'idle';
@@ -228,6 +234,7 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   pageSize = 25,
   presetScope,
   showFilterPresets = true,
+  showRecentFilters,
 }) => {
   // ── Filter persistence ─────────────────────────────────────────────────────
   // Stable scope key isolates persisted state so different feeds don't collide.
@@ -490,6 +497,40 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     setSavedPresets(nextPresets);
     setSelectedPresetId('');
   }, [resolvedPresetScope, selectedPresetId]);
+
+  // ── Recent filter chip rail (#478) ───────────────────────────────────────────
+  const resolvedShowRecent = showRecentFilters ?? persistFilters;
+  const [recentFilters, setRecentFilters] = useState<RecentFilterEntry[]>([]);
+
+  useEffect(() => {
+    if (!resolvedShowRecent) return;
+    setRecentFilters(getRecentFilters(resolvedScope));
+  }, [resolvedShowRecent, resolvedScope]);
+
+  // Record current active filters when they change (only when persistFilters)
+  useEffect(() => {
+    if (!resolvedShowRecent || !persistFilters) return;
+    if (!filterInitialisedRef.current) return;
+    if (currentActiveFilters.length === 0) return;
+    recordRecentFilter(resolvedScope, currentActiveFilters);
+    setRecentFilters(getRecentFilters(resolvedScope));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedShowRecent, persistFilters, resolvedScope, currentActiveFilters.join(',')]);
+
+  const handleApplyRecentFilter = useCallback(
+    (entry: RecentFilterEntry) => {
+      applyPresetValues(entry.values);
+      recordRecentFilter(resolvedScope, entry.values, entry.label);
+      setRecentFilters(getRecentFilters(resolvedScope));
+    },
+    [applyPresetValues, resolvedScope],
+  );
+
+  const handleClearRecentFilters = useCallback(() => {
+    clearRecentFilters(resolvedScope);
+    setRecentFilters([]);
+  }, [resolvedScope]);
+
   const totalPages =
     filteredEvents.length > 0 ? Math.ceil(filteredEvents.length / pageSize) : 0;
   const hasNextPage =
@@ -704,6 +745,43 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
               window: <strong>{timeWindowMs / 1000}s</strong>
             </span>
           )}
+        </div>
+      )}
+
+      {resolvedShowRecent && recentFilters.length > 0 && (
+        <div
+          className="chip-rail"
+          role="toolbar"
+          aria-label="Recent filters"
+          data-testid={`${testId}-recent-filters`}
+        >
+          {recentFilters.map((entry, idx) => {
+            const chipKey = entry.values.join(',');
+            const isActive =
+              currentActiveFilters.length === entry.values.length &&
+              [...currentActiveFilters].sort().join(',') === [...entry.values].sort().join(',');
+            return (
+              <button
+                key={chipKey}
+                type="button"
+                className={`chip-rail__chip${isActive ? ' chip-rail__chip--active' : ''}`}
+                onClick={() => handleApplyRecentFilter(entry)}
+                aria-pressed={isActive}
+                data-testid={`${testId}-recent-chip-${idx}`}
+              >
+                {entry.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className="chip-rail__chip chip-rail__chip-remove"
+            onClick={handleClearRecentFilters}
+            aria-label="Clear recent filters"
+            data-testid={`${testId}-recent-clear`}
+          >
+            ✕
+          </button>
         </div>
       )}
 

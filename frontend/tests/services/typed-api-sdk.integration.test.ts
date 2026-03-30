@@ -105,9 +105,10 @@ describe('Integration — games domain', () => {
     // Step 2: play the selected game
     const playResult = await client.playGame({ gameId: 'coin-flip', wager: 1.0 });
     expect(playResult.success).toBe(true);
-    if (!playResult.success) return;
-    expect(playResult.data.result).toBe('win');
-    expect(playResult.data.txHash).toBe('txhash-abc');
+    if (playResult.success) {
+      expect(playResult.data.result).toBe('win');
+      expect(playResult.data.payout).toBe(2.0);
+    }
   });
 
   it('play game fails when not authenticated', async () => {
@@ -120,6 +121,33 @@ describe('Integration — games domain', () => {
     }
     // fetch must not have been called
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancellation: aborts request and returns API_ABORTED', async () => {
+    // Mock a slow server that we can cancel
+    global.fetch = vi.fn().mockImplementation((_url, init) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    });
+
+    const client = new ApiClient();
+    const controller = new AbortController();
+
+    const promise = client.getGames({ signal: controller.signal });
+    
+    // Cancel the request
+    controller.abort();
+
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('API_ABORTED');
+      expect(result.error.message).toContain('cancelled');
+    }
   });
 });
 

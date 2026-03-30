@@ -16,6 +16,10 @@ import {
 import {
   resumeQueuedNetworkActions,
   getQueuedNetworkActionsCount,
+  isOffline,
+  onConnectivityChange,
+  getPendingRefreshCount,
+  enqueueRefreshOnReconnect,
 } from "../../services/network-guard-middleware";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -316,5 +320,107 @@ export const NetworkGuardBanner = React.memo(
 );
 
 NetworkGuardBanner.displayName = "NetworkGuardBanner";
+
+// ── Offline Banner (#480) ──────────────────────────────────────────────────────
+
+export interface OfflineBannerProps {
+  /** Optional callback for manual refresh. When offline, this is queued for reconnection. */
+  onRefresh?: () => Promise<void>;
+  /** Test identifier. */
+  testId?: string;
+}
+
+/**
+ * OfflineBanner Component
+ *
+ * Renders a calm, actionable banner when the browser is offline.
+ * Shows queued refresh count and reconnection indicator.
+ * Distinct from the unsupported-network banner (NetworkGuardBanner).
+ * Recovers cleanly when connectivity returns without triggering duplicate storms.
+ */
+export const OfflineBanner: React.FC<OfflineBannerProps> = React.memo(
+  ({ onRefresh, testId = "offline-banner" }) => {
+    const [offline, setOffline] = useState(() => isOffline());
+    const [reconnecting, setReconnecting] = useState(false);
+    const [pendingCount, setPendingCount] = useState(0);
+
+    useEffect(() => {
+      setOffline(isOffline());
+      const unsubscribe = onConnectivityChange((online) => {
+        if (online) {
+          setReconnecting(true);
+          // Brief reconnecting state before clearing
+          setTimeout(() => {
+            setOffline(false);
+            setReconnecting(false);
+          }, 800);
+        } else {
+          setOffline(true);
+          setReconnecting(false);
+        }
+      });
+      return unsubscribe;
+    }, []);
+
+    // Track pending refresh count
+    useEffect(() => {
+      const interval = setInterval(() => {
+        setPendingCount(getPendingRefreshCount());
+      }, 1000);
+      return () => clearInterval(interval);
+    }, []);
+
+    const handleQueueRefresh = useCallback(() => {
+      if (!onRefresh) return;
+      const count = enqueueRefreshOnReconnect(onRefresh);
+      setPendingCount(count);
+    }, [onRefresh]);
+
+    if (!offline && !reconnecting) return null;
+
+    return (
+      <div
+        className={`offline-banner${reconnecting ? ' offline-banner--reconnecting' : ''}`}
+        role="status"
+        aria-live="polite"
+        data-testid={testId}
+      >
+        <span className="offline-banner__icon" aria-hidden="true">
+          {reconnecting ? (
+            <span className="offline-banner__spinner" data-testid={`${testId}-spinner`} />
+          ) : (
+            '⚡'
+          )}
+        </span>
+        <div className="offline-banner__text">
+          <span data-testid={`${testId}-message`}>
+            {reconnecting
+              ? 'Reconnecting… resuming pending operations.'
+              : 'You are currently offline. Some features may be unavailable.'}
+          </span>
+          {pendingCount > 0 && !reconnecting && (
+            <div className="offline-banner__queued" data-testid={`${testId}-queued`}>
+              {pendingCount} refresh{pendingCount !== 1 ? 'es' : ''} queued — will resume when online.
+            </div>
+          )}
+        </div>
+        {onRefresh && !reconnecting && (
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ flexShrink: 0, padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+            onClick={handleQueueRefresh}
+            data-testid={`${testId}-queue-refresh`}
+            aria-label="Queue refresh for when connectivity returns"
+          >
+            Queue Refresh
+          </button>
+        )}
+      </div>
+    );
+  },
+);
+
+OfflineBanner.displayName = "OfflineBanner";
 
 export default NetworkGuardBanner;

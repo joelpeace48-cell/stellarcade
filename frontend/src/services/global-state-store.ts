@@ -519,4 +519,91 @@ export function deleteSavedFilterPreset(scope: string, presetId: string): void {
   persistAllSavedFilterPresets(next);
 }
 
+// ── Recent filter history (session-scoped) ─────────────────────────────────────
+
+const RECENT_FILTERS_KEY_PREFIX = "stc_recent_filters_v1";
+const MAX_RECENT_FILTERS = 8;
+
+export interface RecentFilterEntry {
+  /** The filter value(s) that were active. */
+  values: string[];
+  /** Human-readable label (derived from filter values). */
+  label: string;
+  /** Timestamp when this filter combination was last used. */
+  usedAt: number;
+}
+
+function recentFiltersStorageKey(scope: string): string {
+  return `${RECENT_FILTERS_KEY_PREFIX}_${scope}`;
+}
+
+/**
+ * Returns the most recently used filter combinations for a feed scope.
+ * Ordered by most recent first, capped at MAX_RECENT_FILTERS.
+ */
+export function getRecentFilters(scope: string): RecentFilterEntry[] {
+  if (!isStorageAvailable() || !scope) return [];
+  try {
+    const raw = sessionStorage.getItem(recentFiltersStorageKey(scope));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (entry: unknown): entry is RecentFilterEntry =>
+          entry !== null &&
+          typeof entry === "object" &&
+          Array.isArray((entry as RecentFilterEntry).values) &&
+          typeof (entry as RecentFilterEntry).label === "string" &&
+          typeof (entry as RecentFilterEntry).usedAt === "number",
+      )
+      .sort((a: RecentFilterEntry, b: RecentFilterEntry) => b.usedAt - a.usedAt)
+      .slice(0, MAX_RECENT_FILTERS);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Records a filter combination as recently used.
+ * Deterministic ordering: most recent first, bounded to MAX_RECENT_FILTERS.
+ * Duplicate value sets update the timestamp rather than creating a new entry.
+ */
+export function recordRecentFilter(
+  scope: string,
+  values: string[],
+  label?: string,
+): void {
+  if (!isStorageAvailable() || !scope || values.length === 0) return;
+  try {
+    const sorted = [...values].sort();
+    const key = sorted.join(",");
+    const existing = getRecentFilters(scope);
+    const filtered = existing.filter(
+      (entry) => [...entry.values].sort().join(",") !== key,
+    );
+    const entry: RecentFilterEntry = {
+      values: sorted,
+      label: label ?? sorted.join(", "),
+      usedAt: Date.now(),
+    };
+    const next = [entry, ...filtered].slice(0, MAX_RECENT_FILTERS);
+    sessionStorage.setItem(recentFiltersStorageKey(scope), JSON.stringify(next));
+  } catch {
+    // no-op
+  }
+}
+
+/**
+ * Clears recent filter history for a given scope.
+ */
+export function clearRecentFilters(scope: string): void {
+  if (!isStorageAvailable() || !scope) return;
+  try {
+    sessionStorage.removeItem(recentFiltersStorageKey(scope));
+  } catch {
+    // no-op
+  }
+}
+
 export default GlobalStateStore;

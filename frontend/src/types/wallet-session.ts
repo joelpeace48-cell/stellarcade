@@ -18,6 +18,21 @@ export interface WalletSessionMeta {
   lastActiveAt?: number;
 }
 
+export type WalletSessionHistoryEventType =
+  | "connected"
+  | "reconnected"
+  | "disconnected"
+  | "expired";
+
+export interface WalletSessionHistoryEntry {
+  id: string;
+  type: WalletSessionHistoryEventType;
+  occurredAt: number;
+  network: Network;
+  providerName: string;
+  addressPreview: string;
+}
+
 export enum WalletSessionState {
   DISCONNECTED = "DISCONNECTED",
   CONNECTING = "CONNECTING",

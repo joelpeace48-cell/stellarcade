@@ -21,6 +21,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
+}
+
+.tx-status-panel__header-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .tx-status-panel__badge {

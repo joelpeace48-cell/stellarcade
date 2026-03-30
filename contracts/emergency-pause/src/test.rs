@@ -181,3 +181,57 @@ fn test_get_metadata_returns_none_initially() {
     
     assert!(client.get_pause_metadata().is_none());
 }
+
+#[test]
+fn test_paused_target_summary_is_empty_when_unpaused() {
+    let env = Env::default();
+    let (client, _, _) = setup(&env);
+
+    let summary = client.paused_target_summary();
+    assert_eq!(summary.len(), 0);
+
+    let snapshot = client.pause_window_snapshot();
+    assert!(!snapshot.is_paused);
+    assert_eq!(snapshot.active_target_count, 0);
+    assert_eq!(snapshot.window_seconds, 0);
+    assert_eq!(snapshot.paused_at, None);
+}
+
+#[test]
+fn test_pause_window_snapshot_reports_active_pause_window() {
+    let env = Env::default();
+    let (client, admin, _) = setup(&env);
+    env.mock_all_auths();
+
+    env.ledger().set_timestamp(1_000);
+    client.pause(&admin, &77);
+
+    env.ledger().set_timestamp(1_045);
+    let snapshot = client.pause_window_snapshot();
+
+    assert!(snapshot.is_paused);
+    assert_eq!(snapshot.active_target_count, 1);
+    assert_eq!(snapshot.paused_at, Some(1_000));
+    assert_eq!(snapshot.reason_code, Some(77));
+    assert_eq!(snapshot.admin, Some(admin));
+    assert_eq!(snapshot.window_seconds, 45);
+}
+
+#[test]
+fn test_paused_target_summary_reports_global_pause_deterministically() {
+    let env = Env::default();
+    let (client, admin, _) = setup(&env);
+    env.mock_all_auths();
+
+    env.ledger().set_timestamp(500);
+    client.pause(&admin, &9);
+
+    let summary = client.paused_target_summary();
+    assert_eq!(summary.len(), 1);
+
+    let target = summary.get(0).expect("summary entry should exist");
+    assert_eq!(target.target, soroban_sdk::String::from_str(&env, "global"));
+    assert_eq!(target.reason_code, 9);
+    assert_eq!(target.paused_at, 500);
+    assert_eq!(target.admin, admin);
+}

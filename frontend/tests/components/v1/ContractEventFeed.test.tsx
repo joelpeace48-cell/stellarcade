@@ -7,6 +7,9 @@ import {
   persistEventFeedFilter,
   clearEventFeedFilter,
   getSavedFilterPresets,
+  recordRecentFilter,
+  getRecentFilters,
+  clearRecentFilters,
 } from '@/services/global-state-store';
 
 const mockStart = vi.fn();
@@ -693,5 +696,86 @@ describe('ContractEventFeed - snapshot', () => {
     const { container } = renderFeed();
     const header = container.querySelector('.cef__header');
     expect(header).toMatchSnapshot();
+  });
+});
+
+describe('ContractEventFeed - recent filter chip rail (#478)', () => {
+  it('renders recent filter chips when persistFilters=true and filters have been recorded', () => {
+    recordRecentFilter('recent-scope', ['coin_flip'], 'Coin Flip');
+
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'recent-scope',
+    });
+
+    expect(screen.getByTestId('contract-event-feed-recent-filters')).toBeInTheDocument();
+    expect(screen.getByTestId('contract-event-feed-recent-chip-0')).toHaveTextContent('Coin Flip');
+  });
+
+  it('does not render chip rail when showRecentFilters=false', () => {
+    recordRecentFilter('hidden-scope', ['coin_flip']);
+
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'hidden-scope',
+      showRecentFilters: false,
+    });
+
+    expect(screen.queryByTestId('contract-event-feed-recent-filters')).not.toBeInTheDocument();
+  });
+
+  it('applies a recent filter when a chip is clicked', () => {
+    recordRecentFilter('apply-scope', ['transfer'], 'Transfer');
+
+    const onToggle = vi.fn();
+    renderFeed({
+      eventTypeFilters: filterChips,
+      onEventTypeFilterToggle: onToggle,
+      persistFilters: true,
+      feedScope: 'apply-scope',
+    });
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-recent-chip-0'));
+    expect(onToggle).toHaveBeenCalledWith('transfer');
+  });
+
+  it('recent filter history is bounded and deterministic', () => {
+    for (let i = 0; i < 12; i++) {
+      recordRecentFilter('bound-scope', [`filter-${i}`]);
+    }
+
+    const result = getRecentFilters('bound-scope');
+    expect(result.length).toBeLessThanOrEqual(8);
+    // Most recently recorded appears first
+    expect(result[0].values).toEqual(['filter-11']);
+  });
+
+  it('clears recent filters when clear button is clicked', () => {
+    recordRecentFilter('clear-recent-scope', ['coin_flip']);
+
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'clear-recent-scope',
+    });
+
+    expect(screen.getByTestId('contract-event-feed-recent-filters')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('contract-event-feed-recent-clear'));
+    expect(screen.queryByTestId('contract-event-feed-recent-filters')).not.toBeInTheDocument();
+    expect(getRecentFilters('clear-recent-scope')).toEqual([]);
+  });
+
+  it('chip rail has role=toolbar for accessibility', () => {
+    recordRecentFilter('a11y-scope', ['coin_flip']);
+
+    renderFeed({
+      eventTypeFilters: filterChips,
+      persistFilters: true,
+      feedScope: 'a11y-scope',
+    });
+
+    expect(screen.getByRole('toolbar', { name: /recent filters/i })).toBeInTheDocument();
   });
 });

@@ -25,6 +25,7 @@ import type { AppError } from "../types/errors";
 import type {
   ApiClientError,
   ApiErrorCategory,
+  ApiRequestOptions,
   ApiResult,
   CreateProfileRequest,
   CreateProfileResponse,
@@ -92,6 +93,10 @@ function inferApiErrorCategory(
   }
 
   if (error.code === "API_NETWORK_ERROR") {
+    return "network";
+  }
+
+  if (error.code === "API_REQUEST_TIMEOUT" || error.code === "API_ABORTED") {
     return "network";
   }
 
@@ -219,6 +224,7 @@ export class ApiClient {
     path: string,
     body: unknown,
     requiresAuth: boolean,
+    opts: ApiRequestOptions = {},
   ): Promise<ApiResult<T>> {
     // ── Auth precondition ────────────────────────────────────────────────────
     const token = this._sessionStore?.getToken() ?? null;
@@ -234,6 +240,33 @@ export class ApiClient {
       headers["Authorization"] = `Bearer ${token}`;
     }
 
+    // ── Build signal ─────────────────────────────────────────────────────────
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let requestSignal = opts.signal;
+
+    if (opts.timeout !== undefined) {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort("timeout"), opts.timeout);
+
+      if (requestSignal) {
+        // Use AbortSignal.any() if available (modern browsers and Node 20+)
+        if ("any" in AbortSignal && typeof AbortSignal.any === "function") {
+          requestSignal = (AbortSignal as any).any([
+            requestSignal,
+            controller.signal,
+          ]);
+        } else {
+          // Fallback manual link
+          requestSignal.addEventListener("abort", () =>
+            controller.abort(requestSignal?.reason),
+          );
+          requestSignal = controller.signal;
+        }
+      } else {
+        requestSignal = controller.signal;
+      }
+    }
+
     const url = `${this._baseUrl}${path}`;
 
     // Generate unique trace ID for this request
@@ -242,6 +275,115 @@ export class ApiClient {
     // ── Retry loop ───────────────────────────────────────────────────────────
     let lastError: ApiClientError | undefined;
 
+    try {
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1));
+        }
+
+        // Check if signal is already aborted before starting a new attempt
+        if (requestSignal?.aborted) {
+          const isTimeout = requestSignal.reason === "timeout";
+          return {
+            success: false,
+            error: normalizeApiClientError(
+              {
+                code: isTimeout ? "API_REQUEST_TIMEOUT" : "API_ABORTED",
+                domain: ErrorDomain.API,
+                severity: ErrorSeverity.TERMINAL,
+                message: isTimeout
+                  ? `Request timed out after ${opts.timeout}ms`
+                  : "Request was cancelled by the user.",
+              },
+              {
+                category: "network",
+                originalMessage: String(requestSignal.reason || "Aborted"),
+              },
+            ),
+          };
+        }
+
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method,
+            headers,
+            ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+            signal: requestSignal,
+          });
+        } catch (networkErr: any) {
+          // Check for timeout/abort specifically
+          if (
+            networkErr.name === "AbortError" ||
+            networkErr === "timeout" ||
+            networkErr.message === "timeout"
+          ) {
+            const isTimeout =
+              networkErr === "timeout" ||
+              networkErr.message === "timeout" ||
+              requestSignal?.reason === "timeout";
+
+            const abortError = normalizeApiClientError(
+              {
+                code: isTimeout ? "API_REQUEST_TIMEOUT" : "API_ABORTED",
+                domain: ErrorDomain.API,
+                severity: ErrorSeverity.TERMINAL,
+                message: isTimeout
+                  ? `Request timed out after ${opts.timeout}ms`
+                  : "Request was cancelled by the user.",
+              },
+              {
+                category: "network",
+                originalMessage: networkErr.message || String(networkErr),
+              },
+            );
+            return { success: false, error: abortError };
+          }
+
+          // Network failure (fetch threw) — map and retry
+          const mappedNetErr = normalizeApiClientError(
+            mapRpcError(networkErr, { url, attempt }),
+            {
+              category: "network",
+              originalMessage:
+                networkErr instanceof Error ? networkErr.message : String(networkErr),
+            },
+          );
+          lastError = mappedNetErr;
+          if (mappedNetErr.severity === ErrorSeverity.RETRYABLE) continue;
+          return { success: false, error: mappedNetErr };
+        }
+
+        if (response.ok) {
+          const data = (await response.json()) as T;
+          return { success: true, data };
+        }
+
+        // Parse error body — backend emits { error: { message, code, status } }
+        // or { message }. We pass the parsed object to mapApiError.
+        let errorBody: unknown;
+        try {
+          errorBody = await response.json();
+        } catch {
+          errorBody = { status: response.status };
+        }
+
+        // Attach the HTTP status to whatever shape was returned so mapApiError
+        // can pattern-match on it consistently.
+        const rawWithStatus =
+          typeof errorBody === "object" && errorBody !== null
+            ? {
+                ...(errorBody as Record<string, unknown>),
+                status: response.status,
+              }
+            : { status: response.status };
+
+        const mapped = normalizeApiClientError(
+          mapApiError(rawWithStatus, {
+            url,
+            attempt,
+            status: response.status,
+          }),
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       if (attempt > 0) {
         await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1));
@@ -271,11 +413,26 @@ export class ApiClient {
         const mappedNetErr = normalizeApiClientError(
           mapRpcError(networkErr, { url, attempt }),
           {
-            category: "network",
+            status: response.status,
             originalMessage:
-              networkErr instanceof Error ? networkErr.message : String(networkErr),
+              typeof errorBody === "object" &&
+              errorBody !== null &&
+              "message" in (errorBody as Record<string, unknown>) &&
+              typeof (errorBody as Record<string, unknown>).message === "string"
+                ? ((errorBody as Record<string, unknown>).message as string)
+                : undefined,
           },
         );
+        lastError = mapped;
+
+        // Only retry RETRYABLE errors (5xx, 429, network)
+        if (mapped.severity !== ErrorSeverity.RETRYABLE) {
+          return { success: false, error: mapped };
+        }
+      }
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
 
         dispatchApiTrace({
           traceId: attempt > 0 ? `${traceId}-retry-${attempt}` : traceId,
@@ -376,8 +533,8 @@ export class ApiClient {
    * Retrieve all available games.
    * `GET /api/games` — no auth required.
    */
-  async getGames(): Promise<ApiResult<GetGamesResponse>> {
-    return this._request<GetGamesResponse>("GET", "/games", undefined, false);
+  async getGames(opts: ApiRequestOptions = {}): Promise<ApiResult<GetGamesResponse>> {
+    return this._request<GetGamesResponse>("GET", "/games", undefined, false, opts);
   }
 
   /**
@@ -386,7 +543,10 @@ export class ApiClient {
    *
    * @param req - `{ gameId, wager? }` — gameId must be non-empty.
    */
-  async playGame(req: PlayGameRequest): Promise<ApiResult<PlayGameResponse>> {
+  async playGame(
+    req: PlayGameRequest,
+    opts: ApiRequestOptions = {},
+  ): Promise<ApiResult<PlayGameResponse>> {
     if (!req.gameId || req.gameId.trim() === "") {
       return {
         success: false,
@@ -401,19 +561,22 @@ export class ApiClient {
         error: makeValidationError("wager must be greater than zero."),
       };
     }
-    return this._request<PlayGameResponse>("POST", "/games/play", req, true);
+    return this._request<PlayGameResponse>("POST", "/games/play", req, true, opts);
   }
 
   /**
    * Fetch the authenticated user's profile.
    * `GET /api/users/profile` — auth required.
    */
-  async getProfile(): Promise<ApiResult<GetProfileResponse>> {
+  async getProfile(
+    opts: ApiRequestOptions = {},
+  ): Promise<ApiResult<GetProfileResponse>> {
     return this._request<GetProfileResponse>(
       "GET",
       "/users/profile",
       undefined,
       true,
+      opts,
     );
   }
 
@@ -425,6 +588,7 @@ export class ApiClient {
    */
   async createProfile(
     req: CreateProfileRequest,
+    opts: ApiRequestOptions = {},
   ): Promise<ApiResult<CreateProfileResponse>> {
     if (!req.address || req.address.trim() === "") {
       return {
@@ -439,6 +603,7 @@ export class ApiClient {
       "/users/create",
       req,
       false,
+      opts,
     );
   }
 
@@ -473,14 +638,23 @@ export class ApiClient {
    *
    * @param req - `{ amount }` — must be greater than zero.
    */
-  async deposit(req: WalletAmountRequest): Promise<ApiResult<DepositResponse>> {
+  async deposit(
+    req: WalletAmountRequest,
+    opts: ApiRequestOptions = {},
+  ): Promise<ApiResult<DepositResponse>> {
     if (!req.amount || req.amount <= 0) {
       return {
         success: false,
         error: makeValidationError("amount must be greater than zero."),
       };
     }
-    return this._request<DepositResponse>("POST", "/wallet/deposit", req, true);
+    return this._request<DepositResponse>(
+      "POST",
+      "/wallet/deposit",
+      req,
+      true,
+      opts,
+    );
   }
 
   /**
@@ -491,6 +665,7 @@ export class ApiClient {
    */
   async withdraw(
     req: WalletAmountRequest,
+    opts: ApiRequestOptions = {},
   ): Promise<ApiResult<WithdrawResponse>> {
     if (!req.amount || req.amount <= 0) {
       return {
@@ -503,6 +678,7 @@ export class ApiClient {
       "/wallet/withdraw",
       req,
       true,
+      opts,
     );
   }
 }

@@ -359,3 +359,27 @@ export function truncateHash(
     separator: options.separator ?? "...",
   });
 }
+
+/**
+ * Format a value for display alongside a copy affordance.
+ *
+ * Returns `{ display, full }` where `display` is truncated for inline
+ * rendering and `full` is the raw value to copy. Callers can use `display`
+ * as visible text and hand `full` to `useCopyFeedback.copy()`.
+ */
+export function formatCopyableValue(
+  value: string | null | undefined,
+  options: FormatAddressOptions & { label?: string } = {},
+): { display: string; full: string; ariaLabel: string } {
+  const full = typeof value === "string" ? value.trim() : "";
+  if (!full) {
+    return { display: FALLBACK_ADDRESS, full: "", ariaLabel: "Nothing to copy" };
+  }
+  const display = formatAddress(full, {
+    startChars: options.startChars ?? 6,
+    endChars: options.endChars ?? 4,
+    separator: options.separator ?? "…",
+  });
+  const label = options.label ?? "value";
+  return { display, full, ariaLabel: `Copy ${label} ${display}` };
+}

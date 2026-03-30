@@ -57,6 +57,8 @@ export type ApiErrorCode =
   | 'API_VALIDATION_ERROR'
   | 'API_RATE_LIMITED'
   | 'API_SERVER_ERROR'
+  | 'API_REQUEST_TIMEOUT'
+  | 'API_ABORTED'
   | 'API_UNKNOWN';
 
 export type WalletErrorCode =

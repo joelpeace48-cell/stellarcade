@@ -291,3 +291,97 @@ export async function resumeQueuedNetworkActions(): Promise<void> {
 export function clearNetworkGuardOperationLocks(): void {
   inFlightOperations.clear();
 }
+
+// ── Offline detection and queued refresh (#480) ────────────────────────────────
+
+type ConnectivityListener = (online: boolean) => void;
+
+const connectivityListeners = new Set<ConnectivityListener>();
+let pendingRefreshCount = 0;
+let refreshStormGuard = false;
+
+/**
+ * Returns true when the browser reports offline status.
+ * Falls back to true (online) when navigator.onLine is unavailable.
+ */
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+    ? !navigator.onLine
+    : false;
+}
+
+/**
+ * Subscribe to connectivity changes. Returns an unsubscribe function.
+ * Listener receives `true` when online, `false` when offline.
+ */
+export function onConnectivityChange(listener: ConnectivityListener): () => void {
+  connectivityListeners.add(listener);
+
+  const handleOnline = () => {
+    for (const fn of connectivityListeners) fn(true);
+  };
+  const handleOffline = () => {
+    for (const fn of connectivityListeners) fn(false);
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+  }
+
+  return () => {
+    connectivityListeners.delete(listener);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    }
+  };
+}
+
+/**
+ * Enqueue a refresh to execute once connectivity returns.
+ * Returns the current count of pending refreshes.
+ * Prevents duplicate refresh storms via debounce.
+ */
+export function enqueueRefreshOnReconnect(refreshFn: () => Promise<void>): number {
+  pendingRefreshCount++;
+  const currentCount = pendingRefreshCount;
+
+  const unsubscribe = onConnectivityChange(async (online) => {
+    if (!online) return;
+    unsubscribe();
+
+    // Storm guard: batch-execute with a small delay to prevent duplicates
+    if (refreshStormGuard) return;
+    refreshStormGuard = true;
+
+    try {
+      await refreshFn();
+    } catch (err) {
+      console.error('[NetworkGuard] Queued refresh failed:', err);
+    } finally {
+      pendingRefreshCount = Math.max(0, pendingRefreshCount - 1);
+      // Release storm guard after a short cooldown
+      setTimeout(() => {
+        refreshStormGuard = false;
+      }, 500);
+    }
+  });
+
+  return currentCount;
+}
+
+/**
+ * Returns the number of queued refresh operations waiting for reconnection.
+ */
+export function getPendingRefreshCount(): number {
+  return pendingRefreshCount;
+}
+
+/**
+ * Reset pending refresh count (for testing or cleanup).
+ */
+export function resetPendingRefreshCount(): void {
+  pendingRefreshCount = 0;
+  refreshStormGuard = false;
+}

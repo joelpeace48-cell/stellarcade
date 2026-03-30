@@ -385,6 +385,87 @@ describe('ApiClient — error mapping', () => {
   });
 });
 
+// ── Cancellation and Timeout ─────────────────────────────────────────────────
+
+describe('ApiClient — cancellation and timeout', () => {
+  it('aborts request when signal is cancelled', async () => {
+    const controller = new AbortController();
+    const client = new ApiClient();
+
+    // Mock fetch to simulate abort
+    global.fetch = vi.fn().mockImplementation((_url, init) => {
+      return new Promise((_resolve, reject) => {
+        if (init.signal?.aborted) {
+          return reject(new DOMException('The user aborted a request.', 'AbortError'));
+        }
+        init.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The user aborted a request.', 'AbortError'));
+        });
+      });
+    });
+
+    const promise = client.getGames({ signal: controller.signal });
+    controller.abort();
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('API_ABORTED');
+      expect(result.error.message).toContain('cancelled');
+    }
+  });
+
+  it('times out request when timeout is reached', async () => {
+    vi.useFakeTimers();
+    const client = new ApiClient();
+
+    global.fetch = vi.fn().mockImplementation((_url, init) => {
+      return new Promise((_resolve, reject) => {
+        if (init.signal?.aborted) {
+          const err = init.signal.reason === 'timeout' 
+            ? new Error('timeout') 
+            : new DOMException('Aborted', 'AbortError');
+          return reject(err);
+        }
+        init.signal?.addEventListener('abort', () => {
+          const err = init.signal.reason === 'timeout' 
+            ? new Error('timeout') 
+            : new DOMException('Aborted', 'AbortError');
+          reject(err);
+        });
+      });
+    });
+
+    const promise = client.getGames({ timeout: 1000 });
+
+    // Fast-forward time
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('API_REQUEST_TIMEOUT');
+      expect(result.error.message).toContain('timed out');
+    }
+    vi.useRealTimers();
+  });
+
+  it('respects pre-aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const client = new ApiClient();
+
+    const result = await client.getGames({ signal: controller.signal });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe('API_ABORTED');
+    }
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
 // ── Input validation ──────────────────────────────────────────────────────────
 
 describe('ApiClient — input validation', () => {

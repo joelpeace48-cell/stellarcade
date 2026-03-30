@@ -1,4 +1,6 @@
 import {
+  WalletSessionHistoryEntry,
+  WalletSessionHistoryEventType,
   WalletProviderInfo,
   WalletSessionMeta,
   WalletSessionOptions,
@@ -23,7 +25,9 @@ type Subscriber = (
 ) => void;
 
 const DEFAULT_KEY = "stc_wallet_session_v1";
+const DEFAULT_HISTORY_KEY = "stc_wallet_session_history_v1";
 const DEFAULT_EXPIRY = 1000 * 60 * 60 * 24 * 7;
+const MAX_HISTORY_ENTRIES = 8;
 const DEFAULT_REFRESH_POLICY = {
   maxAttempts: 3,
   initialBackoffMs: 500,
@@ -111,6 +115,12 @@ export class WalletSessionService {
     return this.sessionDropped;
   }
 
+  public static getRecentSessionHistory(
+    storageKey = DEFAULT_HISTORY_KEY,
+  ): WalletSessionHistoryEntry[] {
+    return readHistory(storageKey);
+  }
+
   private persist(meta: WalletSessionMeta | null) {
     if (!meta) {
       localStorage.removeItem(this.storageKey);
@@ -139,6 +149,7 @@ export class WalletSessionService {
         throw new Error("invalid");
       }
       if (this.now() - parsed.storedAt > this.sessionExpiryMs) {
+        this.recordHistory("expired", parsed.meta);
         this.persist(null);
         throw new StaleSessionError();
       }
@@ -146,6 +157,7 @@ export class WalletSessionService {
         this.supportedNetworks &&
         !this.supportedNetworks.includes(parsed.meta.network)
       ) {
+        this.recordHistory("expired", parsed.meta);
         this.persist(null);
         throw new StaleSessionError();
       }
@@ -192,6 +204,7 @@ export class WalletSessionService {
       this.state = WalletSessionState.CONNECTED;
       this.sessionDropped = false;
       this.persist(meta);
+      this.recordHistory("connected", meta);
       this.notify();
       return meta;
     } catch (error) {
@@ -203,6 +216,7 @@ export class WalletSessionService {
   }
 
   public async disconnect(): Promise<void> {
+    const activeMeta = this.meta;
     this.state = WalletSessionState.DISCONNECTED;
     // User-initiated disconnect — clear any dropped-session signal
     this.sessionDropped = false;
@@ -220,6 +234,9 @@ export class WalletSessionService {
 
     this.persist(null);
     this.meta = null;
+    if (activeMeta) {
+      this.recordHistory("disconnected", activeMeta);
+    }
     this.notify();
   }
 
@@ -362,6 +379,7 @@ export class WalletSessionService {
         this.state = WalletSessionState.CONNECTED;
         this.sessionDropped = false;
         this.persist(meta);
+        this.recordHistory("reconnected", meta);
         this.refreshState = this.createIdleRefreshState({
           trigger,
           attempt,
@@ -443,6 +461,60 @@ export class WalletSessionService {
     if (error instanceof WalletSessionError) return error;
     return new WalletSessionError("unknown_error", message);
   }
+
+  private recordHistory(
+    type: WalletSessionHistoryEventType,
+    meta: WalletSessionMeta,
+  ): void {
+    appendHistoryEntry(
+      {
+        id: `${this.now()}-${type}-${meta.provider.id}-${meta.address.slice(-4)}`,
+        type,
+        occurredAt: this.now(),
+        network: meta.network,
+        providerName: meta.provider.name,
+        addressPreview: formatAddressPreview(meta.address),
+      },
+      DEFAULT_HISTORY_KEY,
+    );
+  }
+}
+
+function formatAddressPreview(address: string): string {
+  if (address.length <= 10) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+function readHistory(storageKey: string): WalletSessionHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as WalletSessionHistoryEntry[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry) =>
+        typeof entry?.id === "string" &&
+        typeof entry?.type === "string" &&
+        typeof entry?.occurredAt === "number" &&
+        typeof entry?.providerName === "string" &&
+        typeof entry?.addressPreview === "string" &&
+        typeof entry?.network === "string",
+    );
+  } catch {
+    localStorage.removeItem(storageKey);
+    return [];
+  }
+}
+
+function appendHistoryEntry(
+  entry: WalletSessionHistoryEntry,
+  storageKey: string,
+): void {
+  const nextHistory = [entry, ...readHistory(storageKey)].slice(
+    0,
+    MAX_HISTORY_ENTRIES,
+  );
+  localStorage.setItem(storageKey, JSON.stringify(nextHistory));
 }
 
 export default WalletSessionService;

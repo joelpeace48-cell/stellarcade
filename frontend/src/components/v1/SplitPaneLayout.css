@@ -1,0 +1,170 @@
+/**
+ * SplitPaneLayout Styles
+ *
+ * Flexible split-pane layout with resizable divider.
+ */
+
+.split-pane-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-dark, #050505);
+}
+
+.split-pane-layout--horizontal {
+  flex-direction: row;
+}
+
+.split-pane-layout--vertical {
+  flex-direction: column;
+}
+
+/* ── Panes ── */
+
+.split-pane-layout__pane {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background-color: var(--bg-dark, #050505);
+}
+
+.split-pane-layout__pane--left {
+  border-right: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.split-pane-layout--vertical .split-pane-layout__pane--left {
+  border-right: none;
+  border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+/* ── Divider ── */
+
+.split-pane-layout__divider {
+  flex-shrink: 0;
+  background-color: var(--glass-border, rgba(255, 255, 255, 0.1));
+  transition: background-color 0.2s ease;
+  user-select: none;
+}
+
+.split-pane-layout__divider--horizontal {
+  width: 1px;
+  cursor: col-resize;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+
+.split-pane-layout__divider--vertical {
+  height: 1px;
+  cursor: row-resize;
+  padding: 4px 0;
+  margin: -4px 0;
+}
+
+.split-pane-layout__divider:hover {
+  background-color: rgba(0, 255, 204, 0.3);
+}
+
+.split-pane-layout--dragging .split-pane-layout__divider {
+  background-color: rgba(0, 255, 204, 0.5);
+}
+
+/* ── Dragging state ── */
+
+.split-pane-layout--dragging {
+  user-select: none;
+}
+
+.split-pane-layout--dragging .split-pane-layout__divider--horizontal {
+  cursor: col-resize;
+}
+
+.split-pane-layout--dragging .split-pane-layout__divider--vertical {
+  cursor: row-resize;
+}
+
+/* ── Scrollbar styling ── */
+
+.split-pane-layout__pane::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.split-pane-layout__pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.split-pane-layout__pane::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.split-pane-layout__pane::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Accessibility ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .split-pane-layout__divider {
+    transition: none;
+  }
+}
+
+/* ── Responsive: stack on small screens ── */
+
+@media (max-width: 768px) {
+  .split-pane-layout--horizontal {
+    flex-direction: column;
+  }
+
+  .split-pane-layout--horizontal .split-pane-layout__pane--left {
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    height: 50%;
+  }
+
+  .split-pane-layout--horizontal .split-pane-layout__pane--right {
+    height: 50%;
+  }
+
+  .split-pane-layout--horizontal .split-pane-layout__divider {
+    width: 100%;
+    height: 1px;
+    cursor: row-resize;
+    padding: 4px 0;
+    margin: -4px 0;
+  }
+
+  .split-pane-layout--horizontal .split-pane-layout__divider--horizontal {
+    cursor: row-resize;
+  }
+}
+
+@media (max-width: 480px) {
+  .split-pane-layout {
+    flex-direction: column;
+  }
+
+  .split-pane-layout--horizontal,
+  .split-pane-layout--vertical {
+    flex-direction: column;
+  }
+
+  .split-pane-layout__pane {
+    height: 50%;
+  }
+
+  .split-pane-layout__pane--left {
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  }
+
+  .split-pane-layout__divider {
+    width: 100%;
+    height: 1px;
+    cursor: row-resize;
+    padding: 4px 0;
+    margin: -4px 0;
+  }
+}

@@ -25,7 +25,8 @@ function makeError(code: string, message = 'test error'): AppError {
 
 // Reset store to initial state before every test.
 beforeEach(() => {
-  useErrorStore.setState({ current: null, history: [] });
+  useErrorStore.getState().clearToasts();
+  useErrorStore.setState({ current: null, history: [], toasts: [], toastHistory: [] });
 });
 
 // ---------------------------------------------------------------------------
@@ -194,5 +195,74 @@ describe('action interactions', () => {
     const { current, history } = useErrorStore.getState();
     expect(current).toBeNull();
     expect(history).toHaveLength(0);
+  });
+});
+
+describe('toast notifications', () => {
+  it('enqueueToast adds a visible toast', () => {
+    useErrorStore.getState().enqueueToast({
+      tone: 'info',
+      title: 'Queued',
+      message: 'Background refresh started',
+      durationMs: 60_000,
+    });
+
+    const { toasts } = useErrorStore.getState();
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0].message).toBe('Background refresh started');
+  });
+
+  it('dismissToast archives the toast in bounded history', () => {
+    const id = useErrorStore.getState().enqueueToast({
+      tone: 'warning',
+      title: 'Heads up',
+      message: 'Retry queued',
+      durationMs: 60_000,
+    });
+
+    useErrorStore.getState().dismissToast(id);
+    const { toasts, toastHistory } = useErrorStore.getState();
+    expect(toasts).toHaveLength(0);
+    expect(toastHistory).toHaveLength(1);
+    expect(toastHistory[0].title).toBe('Heads up');
+  });
+
+  it('preserves queue ordering under rapid bursts', () => {
+    useErrorStore.getState().enqueueToast({
+      tone: 'info',
+      message: 'First',
+      durationMs: 60_000,
+    });
+    useErrorStore.getState().enqueueToast({
+      tone: 'success',
+      message: 'Second',
+      durationMs: 60_000,
+    });
+    useErrorStore.getState().enqueueToast({
+      tone: 'error',
+      message: 'Third',
+      durationMs: 60_000,
+    });
+
+    expect(useErrorStore.getState().toasts.map((toast) => toast.message)).toEqual([
+      'First',
+      'Second',
+      'Third',
+    ]);
+  });
+
+  it('keeps toast history bounded', () => {
+    for (let i = 0; i < 25; i++) {
+      const id = useErrorStore.getState().enqueueToast({
+        tone: 'info',
+        message: `toast-${i}`,
+        durationMs: 60_000,
+      });
+      useErrorStore.getState().dismissToast(id);
+    }
+
+    expect(useErrorStore.getState().toastHistory).toHaveLength(20);
+    expect(useErrorStore.getState().toastHistory[0].message).toBe('toast-24');
+    expect(useErrorStore.getState().toastHistory[19].message).toBe('toast-5');
   });
 });

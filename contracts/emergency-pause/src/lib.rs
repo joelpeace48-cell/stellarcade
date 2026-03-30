@@ -7,7 +7,7 @@
 //! sensitive function to fail fast when the platform is paused.
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec};
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -27,6 +27,26 @@ pub struct PauseMetadata {
     pub reason_code: u32,
     pub timestamp: u64,
     pub admin: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PausedTargetSummary {
+    pub target: String,
+    pub reason_code: u32,
+    pub paused_at: u64,
+    pub admin: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PauseWindowSnapshot {
+    pub is_paused: bool,
+    pub active_target_count: u32,
+    pub paused_at: Option<u64>,
+    pub reason_code: Option<u32>,
+    pub admin: Option<Address>,
+    pub window_seconds: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +142,47 @@ impl EmergencyPause {
     pub fn get_pause_metadata(env: Env) -> Option<PauseMetadata> {
         env.storage().instance().get(&DataKey::PauseMetadata)
     }
+
+    /// Returns a deterministic list of paused targets.
+    /// The current contract only supports a single global pause target.
+    pub fn paused_target_summary(env: Env) -> Vec<PausedTargetSummary> {
+        let mut targets = Vec::new(&env);
+
+        if let Some(metadata) = current_pause_metadata(&env) {
+            targets.push_back(PausedTargetSummary {
+                target: String::from_str(&env, "global"),
+                reason_code: metadata.reason_code,
+                paused_at: metadata.timestamp,
+                admin: metadata.admin,
+            });
+        }
+
+        targets
+    }
+
+    /// Returns a side-effect free snapshot of the active pause window.
+    pub fn pause_window_snapshot(env: Env) -> PauseWindowSnapshot {
+        if let Some(metadata) = current_pause_metadata(&env) {
+            let now = env.ledger().timestamp();
+            return PauseWindowSnapshot {
+                is_paused: true,
+                active_target_count: 1,
+                paused_at: Some(metadata.timestamp),
+                reason_code: Some(metadata.reason_code),
+                admin: Some(metadata.admin),
+                window_seconds: now.saturating_sub(metadata.timestamp),
+            };
+        }
+
+        PauseWindowSnapshot {
+            is_paused: false,
+            active_target_count: 0,
+            paused_at: None,
+            reason_code: None,
+            admin: None,
+            window_seconds: 0,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +209,14 @@ pub fn is_paused_internal(env: &Env) -> bool {
         .instance()
         .get(&DataKey::Paused)
         .unwrap_or(false)
+}
+
+fn current_pause_metadata(env: &Env) -> Option<PauseMetadata> {
+    if !is_paused_internal(env) {
+        return None;
+    }
+
+    env.storage().instance().get(&DataKey::PauseMetadata)
 }
 
 // ---------------------------------------------------------------------------

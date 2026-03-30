@@ -8,8 +8,9 @@
  * @module components/v1/WalletStatusCard
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { SkeletonBase } from './LoadingSkeletonSet';
+import { EnvironmentBadge } from './EnvironmentBadge';
 import {
   BADGE_VARIANT_MAP,
   STATUS_LABEL_MAP,
@@ -18,6 +19,8 @@ import {
   type WalletCapabilities,
   type WalletStatus,
 } from './WalletStatusCard.types';
+import WalletSessionService from '../../services/wallet-session-service';
+import type { WalletSessionHistoryEntry } from '../../types/wallet-session';
 import './WalletStatusCard.css';
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
@@ -42,6 +45,30 @@ function formatLastUpdated(ts: number): string {
   if (diffMin < 60) return `Updated ${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
   return `Updated ${diffHr}h ago`;
+}
+
+function formatSessionTime(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function getSessionEventLabel(type: WalletSessionHistoryEntry['type']): string {
+  switch (type) {
+    case 'connected':
+      return 'Connected';
+    case 'reconnected':
+      return 'Reconnected';
+    case 'disconnected':
+      return 'Disconnected';
+    case 'expired':
+      return 'Expired';
+    default:
+      return 'Session update';
+  }
 }
 
 /**
@@ -364,6 +391,14 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
   className,
   testId = 'wallet-status-card',
 }) => {
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [sessionHistory, setSessionHistory] = useState<WalletSessionHistoryEntry[]>(
+    () => WalletSessionService.getRecentSessionHistory(),
+  );
+
+  useEffect(() => {
+    setSessionHistory(WalletSessionService.getRecentSessionHistory());
+  }, [status, address, network, provider?.name, lastUpdatedAt, droppedSession]);
   // ── Loading state ────────────────────────────────────────────────────────────
   if (isLoading) {
     return <WalletStatusCardSkeleton className={className} testId={testId} />;
@@ -380,6 +415,13 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
   const sanitizedNetwork = network ? sanitize(network) : null;
   const sanitizedProviderName =
     provider?.name ? sanitize(provider.name) : null;
+  const recentSessionLabel = useMemo(
+    () =>
+      sessionHistory.length === 1
+        ? '1 recent session'
+        : `${sessionHistory.length} recent sessions`,
+    [sessionHistory.length],
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────────
   const containerClass = ['wallet-status-card', className]
@@ -393,13 +435,19 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
       role="region"
       aria-label="Wallet status"
     >
-      {/* ── Header: badge + provider ── */}
+      {/* ── Header: badge + provider + environment ── */}
       <div className="wallet-status-card__header">
         <StatusBadge variant={badgeVariant} label={statusLabel} />
 
         {sanitizedProviderName !== null && (
           <div className="wallet-status-card__provider">
             <span>{sanitizedProviderName}</span>
+          </div>
+        )}
+
+        {sanitizedNetwork !== null && (
+          <div className="wallet-status-card__environment">
+            <EnvironmentBadge environment={sanitizedNetwork} size="small" />
           </div>
         )}
       </div>
@@ -512,6 +560,44 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
           pending={networkRecoveryPending}
           label={networkRecoveryLabel}
         />
+      )}
+
+      {sessionHistory.length > 0 && (
+        <div className="wallet-status-card__history" data-testid="wallet-session-history">
+          <button
+            className="wallet-status-card__history-toggle"
+            type="button"
+            aria-expanded={historyExpanded}
+            onClick={() => setHistoryExpanded((current) => !current)}
+          >
+            <span>{recentSessionLabel}</span>
+            <span className="wallet-status-card__history-toggle-icon" aria-hidden="true">
+              {historyExpanded ? 'Hide' : 'Show'}
+            </span>
+          </button>
+
+          {historyExpanded && (
+            <ul className="wallet-status-card__history-list">
+              {sessionHistory.map((entry) => (
+                <li key={entry.id} className="wallet-status-card__history-item">
+                  <div className="wallet-status-card__history-main">
+                    <span className="wallet-status-card__history-event">
+                      {getSessionEventLabel(entry.type)}
+                    </span>
+                    <span className="wallet-status-card__history-address">
+                      {entry.addressPreview}
+                    </span>
+                  </div>
+                  <div className="wallet-status-card__history-meta">
+                    <span>{entry.providerName}</span>
+                    <span>{entry.network}</span>
+                    <span>{formatSessionTime(entry.occurredAt)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

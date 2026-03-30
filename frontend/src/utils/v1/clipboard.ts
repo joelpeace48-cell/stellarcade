@@ -3,13 +3,93 @@
  *
  * Provides a standardized copy-to-clipboard function with fallback support
  * for environments that do not support navigator.clipboard natively.
+ * Includes a React hook for short-lived success/failure feedback.
  *
  * @module utils/v1/clipboard
  */
 
+import { useState, useCallback, useRef, useEffect } from 'react';
+
 export interface ClipboardResult {
   success: boolean;
   error?: Error;
+}
+
+export type CopyFeedbackState = 'idle' | 'success' | 'error';
+
+export interface UseCopyFeedbackOptions {
+  /** Duration in ms to show feedback before reverting to idle. Default 2000. */
+  feedbackDurationMs?: number;
+  /** Called after a successful copy. */
+  onSuccess?: (text: string) => void;
+  /** Called after a failed copy. */
+  onError?: (error: Error) => void;
+}
+
+export interface UseCopyFeedbackReturn {
+  /** Current feedback state: 'idle', 'success', or 'error'. */
+  state: CopyFeedbackState;
+  /** Trigger a copy with the given text. */
+  copy: (text: string) => Promise<void>;
+  /** Reset feedback state back to idle. */
+  reset: () => void;
+}
+
+/**
+ * React hook for copy-to-clipboard with short-lived feedback state.
+ *
+ * Returns { state, copy, reset } where state cycles through
+ * 'idle' → 'success'|'error' → 'idle' after the feedback duration.
+ *
+ * Degrades gracefully when clipboard APIs are unavailable.
+ * Accessible: the state value can be bound to aria-live regions.
+ */
+export function useCopyFeedback(
+  options: UseCopyFeedbackOptions = {},
+): UseCopyFeedbackReturn {
+  const { feedbackDurationMs = 2000, onSuccess, onError } = options;
+  const [state, setState] = useState<CopyFeedbackState>('idle');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const reset = useCallback(() => {
+    clearTimer();
+    setState('idle');
+  }, [clearTimer]);
+
+  const copy = useCallback(
+    async (text: string) => {
+      clearTimer();
+      const result = await copyToClipboard(text);
+
+      if (result.success) {
+        setState('success');
+        onSuccess?.(text);
+      } else {
+        setState('error');
+        onError?.(result.error ?? new Error('Copy failed'));
+      }
+
+      timerRef.current = setTimeout(() => {
+        setState('idle');
+        timerRef.current = null;
+      }, feedbackDurationMs);
+    },
+    [clearTimer, feedbackDurationMs, onSuccess, onError],
+  );
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => clearTimer();
+  }, [clearTimer]);
+
+  return { state, copy, reset };
 }
 
 /**

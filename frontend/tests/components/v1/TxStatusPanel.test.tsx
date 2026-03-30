@@ -1,5 +1,5 @@
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { TxStatusPanel } from '../../../src/components/v1/TxStatusPanel';
 import { TxPhase } from '../../../src/types/tx-status';
@@ -301,6 +301,135 @@ describe('TxStatusPanel', () => {
             expect(screen.queryByTestId('tx-status-panel-receipt-sender')).not.toBeInTheDocument();
             expect(screen.queryByTestId('tx-status-panel-receipt-recipient')).not.toBeInTheDocument();
             expect(screen.queryByTestId('tx-status-panel-receipt-network')).not.toBeInTheDocument();
+        });
+    });
+
+    describe('Copy Feedback (#476)', () => {
+        it('shows success feedback after successful copy', async () => {
+            Object.defineProperty(navigator, 'clipboard', {
+                value: { writeText: vi.fn().mockResolvedValue(undefined) },
+                writable: true,
+                configurable: true,
+            });
+
+            render(
+                <TxStatusPanel
+                    phase={TxPhase.SUBMITTED}
+                    meta={mockMeta}
+                />
+            );
+
+            const copyBtn = screen.getByTestId('tx-status-panel-copy-btn');
+            expect(copyBtn).toHaveAttribute('aria-label', 'Copy transaction hash');
+
+            await act(async () => {
+                fireEvent.click(copyBtn);
+            });
+
+            expect(copyBtn).toHaveTextContent('✓');
+            expect(copyBtn).toHaveAttribute('aria-label', 'Copied!');
+        });
+
+        it('shows error feedback when copy fails', async () => {
+            Object.defineProperty(navigator, 'clipboard', {
+                value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+                writable: true,
+                configurable: true,
+            });
+            // happy-dom may not have execCommand; define it so fallback also fails
+            if (!document.execCommand) {
+                (document as any).execCommand = vi.fn().mockReturnValue(false);
+            } else {
+                vi.spyOn(document, 'execCommand').mockReturnValue(false);
+            }
+
+            render(
+                <TxStatusPanel
+                    phase={TxPhase.SUBMITTED}
+                    meta={mockMeta}
+                />
+            );
+
+            const copyBtn = screen.getByTestId('tx-status-panel-copy-btn');
+            await act(async () => {
+                fireEvent.click(copyBtn);
+            });
+
+            expect(copyBtn).toHaveTextContent('✗');
+            expect(copyBtn).toHaveAttribute('aria-label', 'Copy failed');
+        });
+
+        it('reverts feedback state to idle after timeout', async () => {
+            vi.useFakeTimers();
+            Object.defineProperty(navigator, 'clipboard', {
+                value: { writeText: vi.fn().mockResolvedValue(undefined) },
+                writable: true,
+                configurable: true,
+            });
+
+            render(
+                <TxStatusPanel
+                    phase={TxPhase.SUBMITTED}
+                    meta={mockMeta}
+                />
+            );
+
+            const copyBtn = screen.getByTestId('tx-status-panel-copy-btn');
+            await act(async () => {
+                fireEvent.click(copyBtn);
+            });
+
+            expect(copyBtn).toHaveTextContent('✓');
+
+            act(() => {
+                vi.advanceTimersByTime(2500);
+            });
+
+            expect(copyBtn).toHaveTextContent('📋');
+            expect(copyBtn).toHaveAttribute('aria-label', 'Copy transaction hash');
+            vi.useRealTimers();
+        });
+
+        it('handles repeated copy interactions correctly', async () => {
+            const writeTextMock = vi.fn().mockResolvedValue(undefined);
+            Object.defineProperty(navigator, 'clipboard', {
+                value: { writeText: writeTextMock },
+                writable: true,
+                configurable: true,
+            });
+
+            render(
+                <TxStatusPanel
+                    phase={TxPhase.SUBMITTED}
+                    meta={mockMeta}
+                />
+            );
+
+            const copyBtn = screen.getByTestId('tx-status-panel-copy-btn');
+
+            // First copy
+            await act(async () => {
+                fireEvent.click(copyBtn);
+            });
+            expect(copyBtn).toHaveTextContent('✓');
+
+            // Second copy immediately
+            await act(async () => {
+                fireEvent.click(copyBtn);
+            });
+            expect(copyBtn).toHaveTextContent('✓');
+            expect(writeTextMock).toHaveBeenCalledTimes(2);
+        });
+
+        it('has aria-live polite on copy button for screen readers', () => {
+            render(
+                <TxStatusPanel
+                    phase={TxPhase.SUBMITTED}
+                    meta={mockMeta}
+                />
+            );
+            const copyBtn = screen.getByTestId('tx-status-panel-copy-btn');
+            expect(copyBtn).toHaveAttribute('aria-live', 'polite');
         });
     });
 });

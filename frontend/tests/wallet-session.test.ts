@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import React from "react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import WalletStatusCard from "../src/components/v1/WalletStatusCard";
 import WalletSessionService from "../src/services/wallet-session-service";
 import {
   ProviderNotFoundError,
@@ -43,6 +46,10 @@ class MockAdapter {
 
 beforeEach(() => {
   localStorage.clear();
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("WalletSessionService", () => {
@@ -316,5 +323,90 @@ describe("WalletSessionService", () => {
     reloaded.setProviderAdapter(adapter as any);
     await expect(reloaded.reconnect()).rejects.toBeInstanceOf(StaleSessionError);
     vi.useRealTimers();
+  });
+
+  it("keeps recent session history bounded", async () => {
+    const service = new WalletSessionService({
+      supportedNetworks: ["TESTNET"],
+      now: (() => {
+        let tick = 1_000;
+        return () => tick++;
+      })(),
+    });
+    const adapter = new MockAdapter();
+    service.setProviderAdapter(adapter as any);
+
+    for (let i = 0; i < 10; i++) {
+      adapter.address = `GTESTADDRESS${i}XYZ`;
+      await service.connect({ network: "TESTNET" });
+      await service.disconnect();
+    }
+
+    const history = WalletSessionService.getRecentSessionHistory();
+    expect(history).toHaveLength(8);
+    expect(history[0].type).toBe("disconnected");
+    expect(history[0].addressPreview).toContain("...");
+  });
+
+  it("records expiration in recent session history", async () => {
+    vi.useFakeTimers();
+    const service = new WalletSessionService({
+      supportedNetworks: ["TESTNET"],
+      sessionExpiryMs: 1,
+    });
+    const adapter = new MockAdapter();
+    service.setProviderAdapter(adapter as any);
+    await service.connect({ network: "TESTNET" });
+
+    await vi.advanceTimersByTimeAsync(5);
+
+    const reloaded = new WalletSessionService({
+      supportedNetworks: ["TESTNET"],
+      sessionExpiryMs: 1,
+    });
+    reloaded.setProviderAdapter(adapter as any);
+
+    await expect(reloaded.reconnect()).rejects.toBeInstanceOf(StaleSessionError);
+    expect(WalletSessionService.getRecentSessionHistory()[0]?.type).toBe("expired");
+    vi.useRealTimers();
+  });
+
+  it("renders recent session history only when entries exist", async () => {
+    render(
+      React.createElement(WalletStatusCard, {
+        status: "DISCONNECTED",
+        address: null,
+        network: null,
+      }),
+    );
+
+    expect(screen.queryByTestId("wallet-session-history")).toBeNull();
+
+    cleanup();
+
+    const service = new WalletSessionService({
+      supportedNetworks: ["TESTNET"],
+      now: () => 100,
+    });
+    const adapter = new MockAdapter();
+    service.setProviderAdapter(adapter as any);
+    await service.connect({ network: "TESTNET" });
+
+    render(
+      React.createElement(WalletStatusCard, {
+        status: "CONNECTED",
+        address: adapter.address,
+        network: "TESTNET",
+        provider: adapter.provider,
+      }),
+    );
+
+    expect(screen.getByTestId("wallet-session-history")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /recent session/i }));
+    expect(
+      screen.getByText("Connected", {
+        selector: ".wallet-status-card__history-event",
+      }),
+    ).toBeInTheDocument();
   });
 });

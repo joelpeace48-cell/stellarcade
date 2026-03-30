@@ -1,0 +1,166 @@
+/**
+ * BulkSelectionToolbar Styles
+ *
+ * Toolbar for displaying bulk selection state and actions.
+ */
+
+.bulk-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background-color: rgba(0, 255, 204, 0.1);
+  border: 1px solid rgba(0, 255, 204, 0.2);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Info section ── */
+
+.bulk-selection-toolbar__info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bulk-selection-toolbar__count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #00ffcc;
+}
+
+/* ── Actions section ── */
+
+.bulk-selection-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Action button ── */
+
+.bulk-selection-toolbar__action {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.bulk-selection-toolbar__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bulk-selection-toolbar__action--primary {
+  background-color: #00ffcc;
+  color: #050505;
+}
+
+.bulk-selection-toolbar__action--primary:hover:not(:disabled) {
+  background-color: #00e6b8;
+  box-shadow: 0 0 12px rgba(0, 255, 204, 0.4);
+}
+
+.bulk-selection-toolbar__action--secondary {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.bulk-selection-toolbar__action--secondary:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.bulk-selection-toolbar__action--danger {
+  background-color: rgba(255, 102, 102, 0.15);
+  color: #ff6666;
+  border: 1px solid rgba(255, 102, 102, 0.3);
+}
+
+.bulk-selection-toolbar__action--danger:hover:not(:disabled) {
+  background-color: rgba(255, 102, 102, 0.25);
+  border-color: rgba(255, 102, 102, 0.5);
+}
+
+/* ── Clear button ── */
+
+.bulk-selection-toolbar__clear {
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background-color: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+}
+
+.bulk-selection-toolbar__clear:hover {
+  background-color: rgba(255, 102, 102, 0.15);
+  color: #ff6666;
+  border-color: rgba(255, 102, 102, 0.3);
+}
+
+.bulk-selection-toolbar__clear:focus-visible {
+  outline: 2px solid #00ffcc;
+  outline-offset: 2px;
+}
+
+/* ── Accessibility ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .bulk-selection-toolbar {
+    animation: none;
+  }
+
+  .bulk-selection-toolbar__action,
+  .bulk-selection-toolbar__clear {
+    transition: none;
+  }
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 640px) {
+  .bulk-selection-toolbar {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .bulk-selection-toolbar__info {
+    width: 100%;
+  }
+
+  .bulk-selection-toolbar__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .bulk-selection-toolbar__action {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+}

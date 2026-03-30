@@ -32,6 +32,16 @@ pub struct MatchRecord {
     pub players: Vec<Address>,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QueuePositionSnapshot {
+    pub queue_id: Symbol,
+    pub player: Address,
+    pub position: u32,
+    pub queue_depth: u32,
+    pub criteria_hash: Symbol,
+}
+
 // ── Events ────────────────────────────────────────────────────────
 #[contractevent]
 pub struct PlayerEnqueued {
@@ -193,12 +203,53 @@ impl MatchmakingQueue {
             .expect("Queue not found")
     }
 
+    /// Read the number of players currently waiting in a queue.
+    /// Missing queues report a depth of 0.
+    pub fn queue_depth(env: Env, queue_id: Symbol) -> u32 {
+        Self::read_queue_state(&env, queue_id)
+            .map(|state| state.players.len())
+            .unwrap_or(0)
+    }
+
+    /// Read a stable player position snapshot for the current queue ordering.
+    /// Returns None for missing queues, empty queues, or absent players.
+    pub fn player_position_snapshot(
+        env: Env,
+        queue_id: Symbol,
+        player: Address,
+    ) -> Option<QueuePositionSnapshot> {
+        let state = Self::read_queue_state(&env, queue_id.clone())?;
+        let queue_depth = state.players.len();
+
+        let mut position: u32 = 1;
+        for queued_player in state.players.iter() {
+            if queued_player == player {
+                return Some(QueuePositionSnapshot {
+                    queue_id,
+                    player,
+                    position,
+                    queue_depth,
+                    criteria_hash: state.criteria_hash,
+                });
+            }
+            position += 1;
+        }
+
+        None
+    }
+
     /// Read a match record.
     pub fn match_state(env: Env, match_id: u64) -> MatchRecord {
         env.storage()
             .persistent()
             .get(&DataKey::Match(match_id))
             .expect("Match not found")
+    }
+
+    fn read_queue_state(env: &Env, queue_id: Symbol) -> Option<MatchQueueState> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::QueueState(queue_id))
     }
 }
 
@@ -286,5 +337,72 @@ mod test {
         let client = MatchmakingQueueClient::new(&env, &contract_id);
         client.init(&admin);
         client.init(&admin);
+    }
+
+    #[test]
+    fn test_queue_depth_and_missing_player_snapshot_for_empty_queue() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let missing_player = Address::generate(&env);
+        let queue_id = Symbol::new(&env, "empty");
+        let contract_id = env.register_contract(None, MatchmakingQueue);
+        let client = MatchmakingQueueClient::new(&env, &contract_id);
+
+        client.init(&admin);
+
+        assert_eq!(client.queue_depth(&queue_id), 0);
+        assert_eq!(client.player_position_snapshot(&queue_id, &missing_player), None);
+    }
+
+    #[test]
+    fn test_player_position_snapshot_tracks_queue_changes() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+        let p3 = Address::generate(&env);
+        let queue_id = Symbol::new(&env, "ranked");
+        let crit = Symbol::new(&env, "solo");
+
+        let contract_id = env.register_contract(None, MatchmakingQueue);
+        let client = MatchmakingQueueClient::new(&env, &contract_id);
+
+        client.init(&admin);
+        client.enqueue_player(&queue_id, &p1, &crit);
+        client.enqueue_player(&queue_id, &p2, &crit);
+        client.enqueue_player(&queue_id, &p3, &crit);
+
+        assert_eq!(client.queue_depth(&queue_id), 3);
+
+        let snapshot = client
+            .player_position_snapshot(&queue_id, &p2)
+            .expect("player should be present");
+        assert_eq!(snapshot.position, 2);
+        assert_eq!(snapshot.queue_depth, 3);
+        assert_eq!(snapshot.criteria_hash, crit);
+
+        client.dequeue_player(&p1, &queue_id, &p1);
+
+        let after_dequeue = client
+            .player_position_snapshot(&queue_id, &p2)
+            .expect("player should still be present");
+        assert_eq!(after_dequeue.position, 1);
+        assert_eq!(after_dequeue.queue_depth, 2);
+
+        let matched_players = vec![&env, p2.clone()];
+        client.create_match(&queue_id, &matched_players);
+
+        assert_eq!(client.queue_depth(&queue_id), 1);
+        assert_eq!(client.player_position_snapshot(&queue_id, &p2), None);
+
+        let remaining = client
+            .player_position_snapshot(&queue_id, &p3)
+            .expect("remaining player should be present");
+        assert_eq!(remaining.position, 1);
+        assert_eq!(remaining.queue_depth, 1);
     }
 }
