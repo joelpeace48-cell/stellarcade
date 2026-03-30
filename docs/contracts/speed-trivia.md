@@ -119,6 +119,36 @@ pub fn get_round(env: Env, round_id: u64) -> Option<RoundData>
 
 `Option<RoundData>`
 
+### `get_round_snapshot`
+```rust
+pub fn get_round_snapshot(env: Env) -> RoundSnapshot
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`RoundSnapshot`
+
+### `get_leaderboard_snapshot`
+```rust
+pub fn get_leaderboard_snapshot(env: Env) -> LeaderboardSnapshot
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`LeaderboardSnapshot`
+
 ### `reserve`
 ```rust
 pub fn reserve(env: Env, _admin: Address, game_id: u64, amount: i128)

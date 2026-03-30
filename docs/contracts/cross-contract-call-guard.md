@@ -100,3 +100,41 @@ pub fn policy_state(env: Env, source: Address, target: Address, selector: Symbol
 
 `bool`
 
+### `denied_audit`
+Read-only accessor: returns the audit snapshot for a denied call, or None.
+
+```rust
+pub fn denied_audit(env: Env, source: Address, target: Address, selector: Symbol) -> Option<DeniedCallAudit>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `source` | `Address` |
+| `target` | `Address` |
+| `selector` | `Symbol` |
+
+#### Return Type
+
+`Option<DeniedCallAudit>`
+
+### `rule_summary`
+Read-only accessor: returns the count of active (allowed) rules for a source.
+
+```rust
+pub fn rule_summary(env: Env, source: Address) -> u32
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `source` | `Address` |
+
+#### Return Type
+
+`u32`
+

@@ -1,5 +1,7 @@
 # contract-upgrade-timelock
 
+Snapshot returned by `get_queued_upgrade`. `None` when no upgrade is queued (never queued or already cleared). When `Some`, `is_ready` is `true` iff the current ledger timestamp >= `eta`.
+
 ## Public Methods
 
 ### `init`
@@ -84,19 +86,11 @@ pub fn upgrade_state(env: Env, upgrade_id: u64) -> UpgradeRecord
 `UpgradeRecord`
 
 ### `get_queued_upgrade`
-Returns a single-read snapshot of a queued upgrade, including a readiness flag.
+Returns a single-read snapshot of the queued upgrade for `upgrade_id`.  Returns `None` when no record exists or the upgrade is no longer in `Queued` status (executed or cancelled).  When `Some`, `is_ready` is `true` iff the current ledger timestamp has reached or passed `eta`.
 
 ```rust
 pub fn get_queued_upgrade(env: Env, upgrade_id: u64) -> Option<QueuedUpgradeView>
 ```
-
-Returns `None` in two deterministic cases:
-- No record exists for `upgrade_id` (never queued).
-- The upgrade exists but is no longer in `Queued` status (already executed or cancelled).
-
-When `Some` is returned, the `is_ready` field is `true` iff `current_ledger_timestamp >= eta`, meaning the upgrade may be executed immediately. Consumers should treat `is_ready = false` as "still within the timelock window" and must not attempt execution.
-
-The entire view is computed in a single storage read, so there is no risk of partial state within a single call/snapshot.
 
 #### Parameters
 
@@ -108,14 +102,4 @@ The entire view is computed in a single storage read, so there is no risk of par
 #### Return Type
 
 `Option<QueuedUpgradeView>`
-
-#### `QueuedUpgradeView` fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `upgrade_id` | `u64` | Identifier of the queued upgrade |
-| `target_contract` | `Address` | Contract address targeted by the upgrade |
-| `queued_at_ledger` | `u32` | Ledger sequence number when the upgrade was queued |
-| `eta` | `u64` | Earliest timestamp (seconds) at which execution is permitted |
-| `is_ready` | `bool` | `true` when `now >= eta`; `false` while still within the timelock window |
 

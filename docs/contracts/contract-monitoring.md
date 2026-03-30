@@ -36,9 +36,24 @@ pub fn ingest_event(env: Env, admin: Address, event_id: u64, kind: EventKind) ->
 
 `Result<Metrics, Error>`
 
-### `set_alert_thresholds`
-Update alert thresholds. Admin-only.
+### `set_paused`
+```rust
+pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error>
+```
 
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `admin` | `Address` |
+| `paused` | `bool` |
+
+#### Return Type
+
+`Result<(), Error>`
+
+### `set_alert_thresholds`
 ```rust
 pub fn set_alert_thresholds(env: Env, admin: Address, thresholds: AlertThresholds) -> Result<(), Error>
 ```
@@ -56,8 +71,6 @@ pub fn set_alert_thresholds(env: Env, admin: Address, thresholds: AlertThreshold
 `Result<(), Error>`
 
 ### `get_alert_thresholds`
-Return current alert thresholds.
-
 ```rust
 pub fn get_alert_thresholds(env: Env) -> AlertThresholds
 ```
@@ -71,42 +84,6 @@ pub fn get_alert_thresholds(env: Env) -> AlertThresholds
 #### Return Type
 
 `AlertThresholds`
-
-### `get_snapshot`
-Return a single stable snapshot for backend pollers and dashboards.
-
-Empty-state behavior: if the contract has not been initialized, `initialized` is false and all other fields are returned with defaults.
-
-```rust
-pub fn get_snapshot(env: Env) -> MonitoringSnapshot
-```
-
-#### Parameters
-
-| Name | Type |
-|------|------|
-| `env` | `Env` |
-
-#### Return Type
-
-`MonitoringSnapshot`
-
-### `set_paused`
-```rust
-pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error>
-```
-
-#### Parameters
-
-| Name | Type |
-|------|------|
-| `env` | `Env` |
-| `admin` | `Address` |
-| `paused` | `bool` |
-
-#### Return Type
-
-`Result<(), Error>`
 
 ### `get_metrics`
 ```rust
@@ -137,6 +114,21 @@ pub fn get_health(env: Env) -> HealthSnapshot
 #### Return Type
 
 `HealthSnapshot`
+
+### `get_snapshot`
+```rust
+pub fn get_snapshot(env: Env) -> MonitoringSnapshot
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`MonitoringSnapshot`
 
 ### `get_sliding_window_metrics`
 ```rust

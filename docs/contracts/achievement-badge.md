@@ -103,28 +103,61 @@ pub fn badges_of(env: Env, user: Address) -> Vec<u64>
 `Vec<u64>`
 
 ### `set_badge_metadata`
-Attach or update human-readable metadata for an existing badge. Admin only. The badge must be defined first. Returns `BadgeNotFound` if `badge_id` is not defined.
+Attach human-readable metadata to an existing badge. Admin only.  The badge must already be defined via `define_badge`. Metadata may be updated by calling this again; each write extends the TTL.  Keeping metadata separate from the immutable `BadgeDefinition` allows copy edits and future metadata field additions without touching the on-chain criteria commitment.
 
 ```rust
 pub fn set_badge_metadata(env: Env, admin: Address, badge_id: u64, title: String, description: String, award_rules: String) -> Result<(), Error>
 ```
-Parameters: `env: Env`, `admin: Address`, `badge_id: u64`, `title: String`, `description: String`, `award_rules: String`
-Return: `Result<(), Error>`
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `admin` | `Address` |
+| `badge_id` | `u64` |
+| `title` | `String` |
+| `description` | `String` |
+| `award_rules` | `String` |
+
+#### Return Type
+
+`Result<(), Error>`
 
 ### `get_badge_summary`
-Return a single-call snapshot combining the badge definition and its metadata, suitable for rendering a badge card without additional reads. When `badge_id` is unknown, `found` is `false` and all other fields carry zero/empty values.
+Return a combined badge definition + metadata snapshot for `badge_id`.  This is designed for single-call badge-card rendering — no additional reads are required. When `badge_id` is unknown `found` is `false` and all other fields carry zero/empty values. Missing metadata fields (metadata not yet set) are returned as empty strings.
 
 ```rust
 pub fn get_badge_summary(env: Env, badge_id: u64) -> BadgeSummary
 ```
-Parameters: `env: Env`, `badge_id: u64`
-Return: `BadgeSummary`
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `badge_id` | `u64` |
+
+#### Return Type
+
+`BadgeSummary`
 
 ### `get_claim_status`
-Return the per-user claim-status snapshot for a `(user, badge_id)` pair. `badge_found` is `false` and `claimed` is `false` when the badge does not exist. `claimed` is `false` when the badge exists but has not been awarded to this user.
+Return the claim-status snapshot for `(user, badge_id)`.  `badge_found` is `false` and `claimed` is `false` when the badge does not exist. `claimed` is `false` when the badge exists but has not been awarded to this user. Both fields are deterministic for all inputs.
 
 ```rust
 pub fn get_claim_status(env: Env, user: Address, badge_id: u64) -> ClaimStatusSnapshot
 ```
-Parameters: `env: Env`, `user: Address`, `badge_id: u64`
-Return: `ClaimStatusSnapshot`
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `user` | `Address` |
+| `badge_id` | `u64` |
+
+#### Return Type
+
+`ClaimStatusSnapshot`
+
