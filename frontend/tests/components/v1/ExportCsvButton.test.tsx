@@ -19,7 +19,7 @@ const rows: Row[] = [
 ];
 
 // Stub URL.createObjectURL / revokeObjectURL for happy-dom environment.
-let mockObjectUrl = 'blob:test';
+const mockObjectUrl = 'blob:test';
 let createObjectURLSpy: any;
 let revokeObjectURLSpy: any;
 let appendChildSpy: any;
