@@ -1,4 +1,4 @@
-/**
+`/**
  * Typed API SDK — StellarCade Backend Client
  *
  * Production-grade HTTP client for all StellarCade backend REST endpoints.
