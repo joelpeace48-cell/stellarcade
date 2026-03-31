@@ -4,6 +4,50 @@ use soroban_sdk::{
     String,
 };
 
+// ---------------------------------------------------------------------------
+// Snapshot types
+// ---------------------------------------------------------------------------
+
+/// Lifecycle visibility state for a session snapshot.
+/// Missing = game_id not found; Active = in-flight; Completed = resolved.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum SnapshotStatus {
+    /// No session exists for the requested game_id.
+    Missing = 0,
+    /// Session exists but has not yet been resolved (Created or InProgress).
+    Active = 1,
+    /// Session has been resolved by the oracle.
+    Completed = 2,
+}
+
+/// Read model returned by `get_session_snapshot`.
+///
+/// Exposes enough state for a client to resume an in-progress session without
+/// leaking sensitive prompt internals. The `prompt_hash` field is the
+/// SHA-256 commitment stored at game creation — it is safe to expose for
+/// verification purposes but does NOT reveal the underlying prompt content.
+///
+/// Fields intentionally omitted (redacted):
+/// - Raw prompt / config payload (never stored on-chain; only the hash is kept)
+/// - Oracle result payload (stored off-chain; not part of on-chain state)
+/// - Internal reward-claim flags (private accounting detail)
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct SessionSnapshot {
+    /// Requested game identifier.
+    pub game_id: u64,
+    /// Lifecycle visibility state.
+    pub status: SnapshotStatus,
+    /// SHA-256 hash of the game configuration / prompt committed at creation.
+    /// Zero-filled when status is Missing.
+    pub prompt_hash: BytesN<32>,
+    /// Address of the winner once the session is Completed; None otherwise.
+    pub winner: Option<Address>,
+    /// True when a winner has been designated (convenience flag for clients).
+    pub has_winner: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
 pub enum DataKey {
@@ -223,6 +267,38 @@ impl AIGeneratedGameContract {
         Ok(())
     }
 
+    /// Returns a stable read-only snapshot of a session for client resume flows.
+    ///
+    /// Safe to call without authentication — no sensitive internals are exposed.
+    /// Returns a deterministic `Missing` snapshot when the game_id is unknown,
+    /// so callers never need to handle a hard error for a simple lookup.
+    pub fn get_session_snapshot(env: Env, game_id: u64) -> SessionSnapshot {
+        let game_key = DataKey::Game(game_id);
+        match env.storage().persistent().get::<DataKey, AIGameState>(&game_key) {
+            None => SessionSnapshot {
+                game_id,
+                status: SnapshotStatus::Missing,
+                prompt_hash: BytesN::from_array(&env, &[0u8; 32]),
+                winner: None,
+                has_winner: false,
+            },
+            Some(state) => {
+                let status = match state.status {
+                    GameStatus::Resolved => SnapshotStatus::Completed,
+                    _ => SnapshotStatus::Active,
+                };
+                let has_winner = state.winner.is_some();
+                SessionSnapshot {
+                    game_id,
+                    status,
+                    prompt_hash: state.config_hash,
+                    winner: state.winner,
+                    has_winner,
+                }
+            }
+        }
+    }
+
     /// Authorizes player to claim rewards mapped after oracle validation finishes.
     pub fn claim_ai_reward(env: Env, player: Address, game_id: u64) -> Result<(), Error> {
         player.require_auth();
@@ -322,5 +398,94 @@ mod test {
         // Cannot reclaim
         let double_claim = client.try_claim_ai_reward(&player, &game_id);
         assert_eq!(double_claim, Err(Ok(Error::RewardAlreadyClaimed)));
+    }
+
+    #[test]
+    fn test_session_snapshot_unknown() {
+        let env = Env::default();
+        let contract_id = env.register(AIGeneratedGameContract, ());
+        let client = AIGeneratedGameContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let reward_system = Address::generate(&env);
+        client.init(&admin, &oracle, &reward_system);
+
+        // Unknown game_id must return a deterministic Missing snapshot
+        let snap = client.get_session_snapshot(&999u64);
+        assert_eq!(snap.game_id, 999u64);
+        assert_eq!(snap.status, SnapshotStatus::Missing);
+        assert_eq!(snap.prompt_hash, BytesN::from_array(&env, &[0u8; 32]));
+        assert_eq!(snap.winner, None);
+        assert!(!snap.has_winner);
+    }
+
+    #[test]
+    fn test_session_snapshot_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(AIGeneratedGameContract, ());
+        let client = AIGeneratedGameContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let reward_system = Address::generate(&env);
+        let player = Address::generate(&env);
+
+        client.init(&admin, &oracle, &reward_system);
+
+        let game_id: u64 = 42;
+        let config_hash = BytesN::from_array(&env, &[1u8; 32]);
+        client.create_ai_game(&admin, &game_id, &config_hash);
+
+        // Before any move: Created → still Active
+        let snap = client.get_session_snapshot(&game_id);
+        assert_eq!(snap.game_id, game_id);
+        assert_eq!(snap.status, SnapshotStatus::Active);
+        assert_eq!(snap.prompt_hash, config_hash);
+        assert_eq!(snap.winner, None);
+        assert!(!snap.has_winner);
+
+        // After a move: InProgress → still Active
+        let move_payload = String::from_str(&env, "move_data");
+        client.submit_ai_move(&player, &game_id, &move_payload);
+
+        let snap2 = client.get_session_snapshot(&game_id);
+        assert_eq!(snap2.status, SnapshotStatus::Active);
+        assert_eq!(snap2.prompt_hash, config_hash);
+    }
+
+    #[test]
+    fn test_session_snapshot_completed() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(AIGeneratedGameContract, ());
+        let client = AIGeneratedGameContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let reward_system = Address::generate(&env);
+        let player = Address::generate(&env);
+
+        client.init(&admin, &oracle, &reward_system);
+
+        let game_id: u64 = 7;
+        let config_hash = BytesN::from_array(&env, &[2u8; 32]);
+        client.create_ai_game(&admin, &game_id, &config_hash);
+
+        let move_payload = String::from_str(&env, "final_move");
+        client.submit_ai_move(&player, &game_id, &move_payload);
+
+        let result_payload = String::from_str(&env, "result");
+        client.resolve_ai_game(&oracle, &game_id, &result_payload, &Some(player.clone()));
+
+        let snap = client.get_session_snapshot(&game_id);
+        assert_eq!(snap.game_id, game_id);
+        assert_eq!(snap.status, SnapshotStatus::Completed);
+        assert_eq!(snap.prompt_hash, config_hash);
+        assert_eq!(snap.winner, Some(player));
+        assert!(snap.has_winner);
     }
 }
