@@ -10,17 +10,8 @@ import AppSidebar from './components/v1/AppSidebar';
 import { ModalStackProvider } from './components/v1/modal-stack';
 import { FeatureFlagsProvider } from './services/feature-flags';
 import CommandPalette, { type Command } from './components/v1/CommandPalette';
-import {
-  BrowserRouter,
-  NavLink,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from 'react-router-dom';
+import { BrowserRouter, useNavigate } from 'react-router-dom';
 import { useErrorStore } from './store/errorStore';
-import GameDetail from './pages/GameDetail';
 
 const DevContractCallSimulatorPanel = import.meta.env.DEV
   ? lazy(() =>
@@ -234,6 +225,7 @@ type AppRoute = 'lobby' | 'games' | 'profile';
 const AppContent: React.FC = () => {
   const { t } = useI18n();
   const [route, setRoute] = React.useState<AppRoute>('lobby');
+  const navigate = useNavigate();
 
   const commands: Command[] = [
     {
