@@ -19,6 +19,19 @@ payload. The contract verifies the submission against a trusted answer hash
 - `submit_answer(player, round_id, answer_payload)`
 - `close_round(round_id)`
 - `claim_reward(player, round_id)`
+- `get_round_snapshot()`
+- `get_participant_answer_summary()`
+- `get_reward_pool_snapshot()`
+
+## Snapshot Reads
+
+- `get_participant_answer_summary` returns deterministic latest-round counters for
+  participant, correct, and incorrect submissions.
+- `get_reward_pool_snapshot` returns latest-round reward values that align with
+  settlement outcomes (`reward_amount`, `winner_count`, and payout totals).
+- If no round has been opened, both accessors report an `Uninitialized` status
+  with zeroed values.
+- Closed rounds are reported as resolved and remain stable across repeated reads.
 
 ## Settlement
 

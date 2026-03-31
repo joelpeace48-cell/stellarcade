@@ -114,6 +114,30 @@ pub struct RoundSnapshot {
     pub closed_at: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticipantAnswerSummary {
+    pub status: RoundSnapshotStatus,
+    pub round_id: u64,
+    pub is_open: bool,
+    pub participant_count: u32,
+    pub correct_count: u32,
+    pub incorrect_count: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RewardPoolSnapshot {
+    pub status: RoundSnapshotStatus,
+    pub round_id: u64,
+    pub reward_amount: i128,
+    pub payout_per_winner: i128,
+    pub winner_count: u32,
+    pub total_claimable: i128,
+    pub total_distributed: i128,
+    pub total_unclaimed: i128,
+}
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -435,6 +459,115 @@ impl DailyTrivia {
             payout_per_winner: round.payout_per_winner,
             opened_at: round.opened_at,
             closed_at: round.closed_at,
+        })
+    }
+
+    /// Returns participation/correctness counters for the latest round.
+    ///
+    /// If no round exists yet, returns an `Uninitialized` summary.
+    /// If the latest round is closed, status is `Resolved` with final counters.
+    pub fn get_participant_answer_summary(env: Env) -> Result<ParticipantAnswerSummary, Error> {
+        require_initialized(&env)?;
+
+        let Some(round_id) = env
+            .storage()
+            .instance()
+            .get::<DataKey, u64>(&DataKey::LatestRoundId)
+        else {
+            return Ok(ParticipantAnswerSummary {
+                status: RoundSnapshotStatus::Uninitialized,
+                round_id: 0,
+                is_open: false,
+                participant_count: 0,
+                correct_count: 0,
+                incorrect_count: 0,
+            });
+        };
+
+        let round: RoundData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .ok_or(Error::RoundNotFound)?;
+
+        let incorrect_count = round
+            .participant_count
+            .checked_sub(round.winner_count)
+            .ok_or(Error::Overflow)?;
+
+        Ok(ParticipantAnswerSummary {
+            status: match round.status {
+                RoundStatus::Open => RoundSnapshotStatus::Active,
+                RoundStatus::Closed => RoundSnapshotStatus::Resolved,
+            },
+            round_id,
+            is_open: round.status == RoundStatus::Open,
+            participant_count: round.participant_count,
+            correct_count: round.winner_count,
+            incorrect_count,
+        })
+    }
+
+    /// Returns reward-pool relevant values for the latest round.
+    ///
+    /// If no round exists yet, returns an `Uninitialized` snapshot.
+    /// During active rounds, distribution values remain zero until close.
+    pub fn get_reward_pool_snapshot(env: Env) -> Result<RewardPoolSnapshot, Error> {
+        require_initialized(&env)?;
+
+        let Some(round_id) = env
+            .storage()
+            .instance()
+            .get::<DataKey, u64>(&DataKey::LatestRoundId)
+        else {
+            return Ok(RewardPoolSnapshot {
+                status: RoundSnapshotStatus::Uninitialized,
+                round_id: 0,
+                reward_amount: 0,
+                payout_per_winner: 0,
+                winner_count: 0,
+                total_claimable: 0,
+                total_distributed: 0,
+                total_unclaimed: 0,
+            });
+        };
+
+        let round: RoundData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .ok_or(Error::RoundNotFound)?;
+
+        let total_claimable = round
+            .payout_per_winner
+            .checked_mul(round.winner_count as i128)
+            .ok_or(Error::Overflow)?;
+        let total_distributed = if round.status == RoundStatus::Closed {
+            total_claimable
+        } else {
+            0
+        };
+        let total_unclaimed = if round.status == RoundStatus::Closed {
+            round
+                .reward_amount
+                .checked_sub(total_claimable)
+                .ok_or(Error::Overflow)?
+        } else {
+            round.reward_amount
+        };
+
+        Ok(RewardPoolSnapshot {
+            status: match round.status {
+                RoundStatus::Open => RoundSnapshotStatus::Active,
+                RoundStatus::Closed => RoundSnapshotStatus::Resolved,
+            },
+            round_id,
+            reward_amount: round.reward_amount,
+            payout_per_winner: round.payout_per_winner,
+            winner_count: round.winner_count,
+            total_claimable,
+            total_distributed,
+            total_unclaimed,
         })
     }
 }

@@ -77,7 +77,14 @@ fn setup(env: &Env) -> Setup<'_> {
     oracle_client.set_price(&btc(env), &50_000);
 
     // Init: min=10, max=10000, house edge 500 bps (5%)
-    client.init(&admin, &oracle_id, &token_addr, &10i128, &10_000i128, &500i128);
+    client.init(
+        &admin,
+        &oracle_id,
+        &token_addr,
+        &10i128,
+        &10_000i128,
+        &500i128,
+    );
 
     // Fund contract for payouts
     token_sac.mint(&contract_id, &1_000_000i128);
@@ -111,7 +118,9 @@ fn test_init_rejects_reinit() {
 
     let oracle = Address::generate(&env);
     let tok = Address::generate(&env);
-    let result = s.client.try_init(&Address::generate(&env), &oracle, &tok, &10, &10000, &500);
+    let result = s
+        .client
+        .try_init(&Address::generate(&env), &oracle, &tok, &10, &10000, &500);
     assert!(result.is_err());
 }
 
@@ -197,7 +206,8 @@ fn test_place_prediction_up() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &100);
 
     let round = s.client.get_round(&1u64);
     assert_eq!(round.total_up, 100);
@@ -226,7 +236,8 @@ fn test_place_prediction_down() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_DOWN, &200);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_DOWN, &200);
 
     let round = s.client.get_round(&1u64);
     assert_eq!(round.total_up, 0);
@@ -265,7 +276,9 @@ fn test_place_prediction_wager_too_low() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_UP, &5i128); // min=10
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_UP, &5i128); // min=10
     assert!(result.is_err());
 }
 
@@ -279,7 +292,9 @@ fn test_place_prediction_wager_too_high() {
     s.token_sac.mint(&player, &50_000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_UP, &10_001i128); // max=10000
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_UP, &10_001i128); // max=10000
     assert!(result.is_err());
 }
 
@@ -291,7 +306,9 @@ fn test_place_prediction_zero_wager() {
 
     let player = Address::generate(&env);
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_UP, &0i128);
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_UP, &0i128);
     assert!(result.is_err());
 }
 
@@ -315,7 +332,9 @@ fn test_place_prediction_after_close_time_rejected() {
         li.timestamp = 3000;
     });
 
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_UP, &100);
     assert!(result.is_err());
 }
 
@@ -333,9 +352,12 @@ fn test_place_prediction_duplicate_rejected() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &100);
 
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_DOWN, &200);
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_DOWN, &200);
     assert!(result.is_err());
 }
 
@@ -352,7 +374,9 @@ fn test_place_prediction_round_not_found() {
     let player = Address::generate(&env);
     s.token_sac.mint(&player, &5000);
 
-    let result = s.client.try_place_prediction(&player, &99u64, &DIRECTION_UP, &100);
+    let result = s
+        .client
+        .try_place_prediction(&player, &99u64, &DIRECTION_UP, &100);
     assert!(result.is_err());
 }
 
@@ -372,8 +396,10 @@ fn test_settle_round_up_wins() {
     s.token_sac.mint(&player_b, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_UP, &300);
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &300);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500);
 
     // Advance time and set higher price
     env.ledger().with_mut(|li| {
@@ -408,8 +434,10 @@ fn test_settle_round_down_wins() {
     s.token_sac.mint(&player_b, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_UP, &400);
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &600);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &400);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &600);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -443,8 +471,10 @@ fn test_settle_round_flat_push() {
     s.token_sac.mint(&player_b, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_UP, &100);
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &200);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &200);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -514,7 +544,8 @@ fn test_settle_round_one_side_only_push() {
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
     // Only UP bets, no DOWN bets
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &500);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &500);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -568,8 +599,10 @@ fn test_claim_winner() {
     s.token_sac.mint(&loser, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&winner, &1u64, &DIRECTION_UP, &300);
-    s.client.place_prediction(&loser, &1u64, &DIRECTION_DOWN, &700);
+    s.client
+        .place_prediction(&winner, &1u64, &DIRECTION_UP, &300);
+    s.client
+        .place_prediction(&loser, &1u64, &DIRECTION_DOWN, &700);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -600,7 +633,8 @@ fn test_claim_push_refund() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &400);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &400);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -630,8 +664,10 @@ fn test_claim_loser_rejected() {
     s.token_sac.mint(&loser, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&winner, &1u64, &DIRECTION_UP, &300);
-    s.client.place_prediction(&loser, &1u64, &DIRECTION_DOWN, &700);
+    s.client
+        .place_prediction(&winner, &1u64, &DIRECTION_UP, &300);
+    s.client
+        .place_prediction(&loser, &1u64, &DIRECTION_DOWN, &700);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -660,8 +696,10 @@ fn test_claim_double_claim_rejected() {
     s.token_sac.mint(&player_b, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_UP, &500);
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &500);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -689,7 +727,8 @@ fn test_claim_not_settled_rejected() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &100);
 
     let result = s.client.try_claim(&player, &1u64);
     assert!(result.is_err()); // NotSettled
@@ -709,7 +748,8 @@ fn test_claim_bet_not_found() {
     s.token_sac.mint(&player, &5000);
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &100);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -743,9 +783,12 @@ fn test_multiple_players_proportional_payout() {
     s.client.open_market(&1u64, &btc(&env), &2000u64);
 
     // Two UP bettors, one DOWN bettor
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_UP, &300);   // UP
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_UP, &200);   // UP
-    s.client.place_prediction(&player_c, &1u64, &DIRECTION_DOWN, &500); // DOWN
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &300); // UP
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_UP, &200); // UP
+    s.client
+        .place_prediction(&player_c, &1u64, &DIRECTION_DOWN, &500); // DOWN
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -762,8 +805,14 @@ fn test_multiple_players_proportional_payout() {
     s.client.claim(&player_a, &1u64);
     s.client.claim(&player_b, &1u64);
 
-    assert_eq!(tc(&env, &s.token_addr).balance(&player_a), 10_000 - 300 + 570);
-    assert_eq!(tc(&env, &s.token_addr).balance(&player_b), 10_000 - 200 + 380);
+    assert_eq!(
+        tc(&env, &s.token_addr).balance(&player_a),
+        10_000 - 300 + 570
+    );
+    assert_eq!(
+        tc(&env, &s.token_addr).balance(&player_b),
+        10_000 - 200 + 380
+    );
     // Player C lost, no claim — balance stays at 10_000 - 500
     assert_eq!(tc(&env, &s.token_addr).balance(&player_c), 9_500);
 }
@@ -783,12 +832,14 @@ fn test_full_lifecycle_two_rounds() {
 
     // Round 1: player bets UP, price goes up → wins
     s.client.open_market(&1u64, &btc(&env), &2000u64);
-    s.client.place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &1u64, &DIRECTION_UP, &100);
 
     // Need a second player on the other side for non-push
     let opponent = Address::generate(&env);
     s.token_sac.mint(&opponent, &10_000);
-    s.client.place_prediction(&opponent, &1u64, &DIRECTION_DOWN, &100);
+    s.client
+        .place_prediction(&opponent, &1u64, &DIRECTION_DOWN, &100);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -804,8 +855,10 @@ fn test_full_lifecycle_two_rounds() {
     // Round 2: player bets DOWN, price goes down → wins
     s.oracle_client.set_price(&btc(&env), &60_000); // new open price
     s.client.open_market(&2u64, &btc(&env), &5000u64);
-    s.client.place_prediction(&player, &2u64, &DIRECTION_DOWN, &100);
-    s.client.place_prediction(&opponent, &2u64, &DIRECTION_UP, &100);
+    s.client
+        .place_prediction(&player, &2u64, &DIRECTION_DOWN, &100);
+    s.client
+        .place_prediction(&opponent, &2u64, &DIRECTION_UP, &100);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 6000;
@@ -836,8 +889,10 @@ fn test_push_one_side_refund() {
 
     s.client.open_market(&1u64, &btc(&env), &2000u64);
     // Both bet DOWN, no UP bets
-    s.client.place_prediction(&player_a, &1u64, &DIRECTION_DOWN, &300);
-    s.client.place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &200);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_DOWN, &300);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &200);
 
     env.ledger().with_mut(|li| {
         li.timestamp = 3000;
@@ -870,6 +925,95 @@ fn test_get_round_not_found() {
     assert!(result.is_err());
 }
 
+#[test]
+fn test_participant_summary_reads() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let player_a = Address::generate(&env);
+    let player_b = Address::generate(&env);
+    s.token_sac.mint(&player_a, &5_000);
+    s.token_sac.mint(&player_b, &5_000);
+
+    s.client.open_market(&1u64, &btc(&env), &2_000u64);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &300i128);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500i128);
+
+    let summary = s.client.participant_summary(&1u64);
+    assert!(summary.has_round);
+    assert!(summary.accepting_predictions);
+    assert!(!summary.is_settled);
+    assert_eq!(summary.total_participants, 2);
+    assert_eq!(summary.up_participants, 1);
+    assert_eq!(summary.down_participants, 1);
+    assert_eq!(summary.total_up_wager, 300);
+    assert_eq!(summary.total_down_wager, 500);
+    assert_eq!(summary.positions.len(), 2);
+
+    let first = summary.positions.get(0).unwrap();
+    let second = summary.positions.get(1).unwrap();
+    assert_eq!(first.player, player_a);
+    assert_eq!(first.direction, DIRECTION_UP);
+    assert_eq!(first.wager, 300);
+    assert_eq!(second.player, player_b);
+    assert_eq!(second.direction, DIRECTION_DOWN);
+    assert_eq!(second.wager, 500);
+}
+
+#[test]
+fn test_settlement_preview_reads() {
+    let env = Env::default();
+    let s = setup(&env);
+    env.mock_all_auths();
+
+    let player_a = Address::generate(&env);
+    let player_b = Address::generate(&env);
+    s.token_sac.mint(&player_a, &5_000);
+    s.token_sac.mint(&player_b, &5_000);
+
+    s.client.open_market(&1u64, &btc(&env), &2_000u64);
+    s.client
+        .place_prediction(&player_a, &1u64, &DIRECTION_UP, &300i128);
+    s.client
+        .place_prediction(&player_b, &1u64, &DIRECTION_DOWN, &500i128);
+
+    s.oracle_client.set_price(&btc(&env), &55_000);
+
+    let preview = s.client.settlement_preview(&1u64);
+    assert!(preview.has_round);
+    assert!(preview.is_provisional);
+    assert!(!preview.is_settled);
+    assert_eq!(preview.open_price, 50_000);
+    assert_eq!(preview.reference_price, 55_000);
+    assert_eq!(preview.projected_outcome, OUTCOME_UP);
+    assert!(!preview.is_push);
+    assert_eq!(preview.total_pool, 800);
+    assert_eq!(preview.projected_net_pool, 760);
+    assert_eq!(preview.projected_winning_total, 300);
+}
+
+#[test]
+fn test_summary_and_preview_inactive_round_behavior() {
+    let env = Env::default();
+    let s = setup(&env);
+
+    let summary = s.client.participant_summary(&99u64);
+    assert!(!summary.has_round);
+    assert!(!summary.accepting_predictions);
+    assert_eq!(summary.total_participants, 0);
+    assert_eq!(summary.positions.len(), 0);
+
+    let preview = s.client.settlement_preview(&99u64);
+    assert!(!preview.has_round);
+    assert!(!preview.is_provisional);
+    assert_eq!(preview.reference_price, 0);
+    assert_eq!(preview.total_pool, 0);
+    assert!(preview.is_push);
+}
+
 // -------------------------------------------------------------------
 // 30. Place prediction on settled round rejected
 // -------------------------------------------------------------------
@@ -891,6 +1035,8 @@ fn test_place_prediction_on_settled_round_rejected() {
     s.oracle_client.set_price(&btc(&env), &55_000);
     s.client.settle_round(&1u64);
 
-    let result = s.client.try_place_prediction(&player, &1u64, &DIRECTION_UP, &100);
+    let result = s
+        .client
+        .try_place_prediction(&player, &1u64, &DIRECTION_UP, &100);
     assert!(result.is_err());
 }

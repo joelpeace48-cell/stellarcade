@@ -1,0 +1,138 @@
+.app-sidebar__mobile-toggle {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 220;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: rgba(10, 10, 10, 0.9);
+  color: var(--text-main);
+  padding: 0.6rem 0.9rem;
+  font-weight: 600;
+}
+
+.app-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 280px;
+  transform: translateX(-100%);
+  background: rgba(8, 8, 8, 0.96);
+  border-right: 1px solid var(--glass-border);
+  padding: 1rem;
+  transition: width 0.25s ease, transform 0.25s ease;
+  z-index: 210;
+}
+
+.app-sidebar.is-mobile-open {
+  transform: translateX(0);
+}
+
+.app-sidebar.is-collapsed {
+  width: 96px;
+}
+
+.app-sidebar__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.app-sidebar__title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.app-sidebar__controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.app-sidebar__icon-button {
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+}
+
+.app-sidebar__section + .app-sidebar__section {
+  margin-top: 1rem;
+}
+
+.app-sidebar__section-title {
+  margin: 0 0 0.5rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.app-sidebar__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.app-sidebar__link {
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.app-sidebar__link:hover,
+.app-sidebar__link:focus-visible {
+  color: var(--text-main);
+  border-color: var(--glass-border);
+}
+
+.app-sidebar__link.is-active {
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 35%, transparent);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+@media (max-width: 1023px) {
+  .app-sidebar__desktop-collapse {
+    display: none;
+  }
+
+  .app-sidebar.is-collapsed .app-sidebar__title,
+  .app-sidebar.is-collapsed .app-sidebar__section-title,
+  .app-sidebar.is-collapsed .app-sidebar__link {
+    display: block;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .app-sidebar__mobile-toggle,
+  .app-sidebar__mobile-close {
+    display: none;
+  }
+
+  .app-sidebar.is-collapsed .app-sidebar__title,
+  .app-sidebar.is-collapsed .app-sidebar__section-title {
+    display: none;
+  }
+
+  .app-sidebar.is-collapsed .app-sidebar__link {
+    text-align: center;
+    padding-inline: 0.2rem;
+    font-size: 0.75rem;
+  }
+}

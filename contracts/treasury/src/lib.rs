@@ -77,6 +77,17 @@ pub struct TreasuryState {
     pub total_released: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryPolicySnapshot {
+    pub initialized: bool,
+    pub paused: bool,
+    pub admin: Address,
+    pub token_address: Address,
+    pub signer_count: u32,
+    pub approval_threshold: u32,
+}
+
 #[contractevent]
 pub struct Initialized {
     pub admin: Address,
@@ -346,6 +357,29 @@ impl Treasury {
         }
 
         Ok(state)
+    }
+
+    /// Returns treasury policy and signer-threshold metadata.
+    pub fn policy_snapshot(env: Env) -> Result<TreasuryPolicySnapshot, Error> {
+        if !env.storage().instance().has(&DataKey::Admin) {
+            return Ok(TreasuryPolicySnapshot {
+                initialized: false,
+                paused: false,
+                admin: env.current_contract_address(),
+                token_address: env.current_contract_address(),
+                signer_count: 0,
+                approval_threshold: 0,
+            });
+        }
+
+        Ok(TreasuryPolicySnapshot {
+            initialized: true,
+            paused: is_paused(&env),
+            admin: get_admin(&env),
+            token_address: get_token(&env),
+            signer_count: 1,
+            approval_threshold: 1,
+        })
     }
 }
 

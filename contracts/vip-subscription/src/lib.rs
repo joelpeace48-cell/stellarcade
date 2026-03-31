@@ -121,6 +121,38 @@ pub struct SubscriptionStatus {
     pub is_active: bool,
 }
 
+/// Frontend-friendly state for a user's subscription lifecycle.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SubscriptionState {
+    NeverSubscribed = 0,
+    Active = 1,
+    Expired = 2,
+}
+
+/// Extended status view that distinguishes active, expired, and missing users.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserSubscriptionStatus {
+    pub state: SubscriptionState,
+    pub plan_id: u32,
+    pub expires_at: u64,
+    pub seconds_until_expiry: u64,
+}
+
+/// Side-effect free preview of the next renewal for a user.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenewalPreview {
+    pub state: SubscriptionState,
+    pub plan_id: u32,
+    pub can_renew: bool,
+    pub renewal_cost: i128,
+    pub renewal_duration: u64,
+    pub effective_from: u64,
+    pub next_expires_at: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
@@ -364,23 +396,73 @@ impl VipSubscription {
     /// user has never subscribed. If a record exists, `is_active` reflects
     /// whether the current ledger timestamp is before `expires_at`.
     pub fn status_of(env: Env, user: Address) -> SubscriptionStatus {
-        let sub_key = DataKey::Subscription(user);
-        match get_subscription(&env, &sub_key) {
-            None => SubscriptionStatus {
-                has_subscription: false,
+        let status = build_user_subscription_status(&env, &user);
+        SubscriptionStatus {
+            has_subscription: status.state != SubscriptionState::NeverSubscribed,
+            plan_id: status.plan_id,
+            expires_at: status.expires_at,
+            is_active: status.state == SubscriptionState::Active,
+        }
+    }
+
+    /// Return a frontend-friendly subscription status for `user`.
+    ///
+    /// Missing users return `NeverSubscribed`, while expired users retain
+    /// their stored `plan_id` and `expires_at` for renewal messaging.
+    pub fn subscription_status(env: Env, user: Address) -> UserSubscriptionStatus {
+        build_user_subscription_status(&env, &user)
+    }
+
+    /// Preview the effect of renewing the user's current subscription now.
+    ///
+    /// This accessor never mutates state. Active subscriptions preview a stacked
+    /// renewal from the current expiry; expired subscriptions preview a renewal
+    /// starting from `now`; never-subscribed users return `can_renew = false`.
+    pub fn renewal_preview(env: Env, user: Address) -> RenewalPreview {
+        let status = build_user_subscription_status(&env, &user);
+        let now = env.ledger().timestamp();
+
+        if status.state == SubscriptionState::NeverSubscribed {
+            return RenewalPreview {
+                state: SubscriptionState::NeverSubscribed,
                 plan_id: 0,
-                expires_at: 0,
-                is_active: false,
+                can_renew: false,
+                renewal_cost: 0,
+                renewal_duration: 0,
+                effective_from: 0,
+                next_expires_at: 0,
+            };
+        }
+
+        let effective_from = if status.state == SubscriptionState::Active {
+            status.expires_at
+        } else {
+            now
+        };
+
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, PlanDefinition>(&DataKey::Plan(status.plan_id))
+        {
+            Some(plan) => RenewalPreview {
+                state: status.state,
+                plan_id: status.plan_id,
+                can_renew: true,
+                renewal_cost: plan.price,
+                renewal_duration: plan.duration,
+                effective_from,
+                next_expires_at: effective_from.saturating_add(plan.duration),
             },
-            Some(record) => {
-                let now = env.ledger().timestamp();
-                SubscriptionStatus {
-                    has_subscription: true,
-                    plan_id: record.plan_id,
-                    expires_at: record.expires_at,
-                    is_active: record.expires_at > now,
-                }
-            }
+            None => RenewalPreview {
+                state: status.state,
+                plan_id: status.plan_id,
+                can_renew: false,
+                renewal_cost: 0,
+                renewal_duration: 0,
+                effective_from,
+                next_expires_at: 0,
+            },
         }
     }
 }
@@ -427,6 +509,34 @@ fn get_treasury(env: &Env) -> Address {
 
 fn get_subscription(env: &Env, key: &DataKey) -> Option<SubscriptionRecord> {
     env.storage().persistent().get(key)
+}
+
+fn build_user_subscription_status(env: &Env, user: &Address) -> UserSubscriptionStatus {
+    let now = env.ledger().timestamp();
+    let sub_key = DataKey::Subscription(user.clone());
+
+    match get_subscription(env, &sub_key) {
+        None => UserSubscriptionStatus {
+            state: SubscriptionState::NeverSubscribed,
+            plan_id: 0,
+            expires_at: 0,
+            seconds_until_expiry: 0,
+        },
+        Some(record) => {
+            let state = if record.expires_at > now {
+                SubscriptionState::Active
+            } else {
+                SubscriptionState::Expired
+            };
+
+            UserSubscriptionStatus {
+                state,
+                plan_id: record.plan_id,
+                expires_at: record.expires_at,
+                seconds_until_expiry: record.expires_at.saturating_sub(now),
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +923,114 @@ mod test {
         let status = client.status_of(&user);
         assert!(status.has_subscription);
         assert!(!status.is_active);
+    }
+
+    #[test]
+    fn test_subscription_status_never_subscribed() {
+        let env = Env::default();
+        let (client, _, _, _) = setup(&env);
+
+        let user = Address::generate(&env);
+        let status = client.subscription_status(&user);
+        assert_eq!(status.state, SubscriptionState::NeverSubscribed);
+        assert_eq!(status.plan_id, 0);
+        assert_eq!(status.expires_at, 0);
+        assert_eq!(status.seconds_until_expiry, 0);
+    }
+
+    #[test]
+    fn test_subscription_status_active() {
+        let env = Env::default();
+        let (client, admin, _, token_sac) = setup(&env);
+        env.mock_all_auths();
+
+        let duration: u64 = 86_400;
+        let hash = make_hash(&env, 30);
+        client.define_plan(&admin, &1u32, &250i128, &duration, &hash);
+
+        let user = Address::generate(&env);
+        token_sac.mint(&user, &250i128);
+
+        set_time(&env, 1_000_000);
+        client.subscribe(&user, &1u32);
+
+        let status = client.subscription_status(&user);
+        assert_eq!(status.state, SubscriptionState::Active);
+        assert_eq!(status.plan_id, 1);
+        assert_eq!(status.expires_at, 1_000_000 + duration);
+        assert_eq!(status.seconds_until_expiry, duration);
+    }
+
+    #[test]
+    fn test_renewal_preview_never_subscribed() {
+        let env = Env::default();
+        let (client, _, _, _) = setup(&env);
+
+        let user = Address::generate(&env);
+        let preview = client.renewal_preview(&user);
+        assert_eq!(preview.state, SubscriptionState::NeverSubscribed);
+        assert!(!preview.can_renew);
+        assert_eq!(preview.renewal_cost, 0);
+        assert_eq!(preview.next_expires_at, 0);
+    }
+
+    #[test]
+    fn test_renewal_preview_active_subscription() {
+        let env = Env::default();
+        let (client, admin, _, token_sac) = setup(&env);
+        env.mock_all_auths();
+
+        let duration: u64 = 86_400;
+        let price: i128 = 400;
+        let hash = make_hash(&env, 31);
+        client.define_plan(&admin, &1u32, &price, &duration, &hash);
+
+        let user = Address::generate(&env);
+        token_sac.mint(&user, &price);
+
+        set_time(&env, 1_000_000);
+        client.subscribe(&user, &1u32);
+
+        let preview = client.renewal_preview(&user);
+        assert_eq!(preview.state, SubscriptionState::Active);
+        assert!(preview.can_renew);
+        assert_eq!(preview.plan_id, 1);
+        assert_eq!(preview.renewal_cost, price);
+        assert_eq!(preview.renewal_duration, duration);
+        assert_eq!(preview.effective_from, 1_000_000 + duration);
+        assert_eq!(preview.next_expires_at, 1_000_000 + duration + duration);
+    }
+
+    #[test]
+    fn test_renewal_preview_expired_subscription() {
+        let env = Env::default();
+        let (client, admin, _, token_sac) = setup(&env);
+        env.mock_all_auths();
+
+        let duration: u64 = 86_400;
+        let price: i128 = 400;
+        let hash = make_hash(&env, 32);
+        client.define_plan(&admin, &1u32, &price, &duration, &hash);
+
+        let user = Address::generate(&env);
+        token_sac.mint(&user, &price);
+
+        set_time(&env, 1_000_000);
+        client.subscribe(&user, &1u32);
+
+        let now = 1_000_000 + duration + 50;
+        set_time(&env, now);
+
+        let status = client.subscription_status(&user);
+        assert_eq!(status.state, SubscriptionState::Expired);
+        assert_eq!(status.seconds_until_expiry, 0);
+
+        let preview = client.renewal_preview(&user);
+        assert_eq!(preview.state, SubscriptionState::Expired);
+        assert!(preview.can_renew);
+        assert_eq!(preview.effective_from, now);
+        assert_eq!(preview.next_expires_at, now + duration);
+        assert_eq!(preview.renewal_cost, price);
     }
 
     // ------------------------------------------------------------------

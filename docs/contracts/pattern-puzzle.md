@@ -179,3 +179,43 @@ pub fn get_leaderboard(env: Env, round_id: u32, limit: Option<u32>) -> Vec<Addre
 
 `Vec<Address>`
 
+### `get_round_commitment_summary`
+Returns commitment metadata for the latest known round.
+
+```rust
+pub fn get_round_commitment_summary(env: Env) -> Result<RoundCommitmentSummary, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`Result<RoundCommitmentSummary, Error>`
+
+### `get_winner_count_snapshot`
+Returns winner-count metadata for a specific round.
+
+```rust
+pub fn get_winner_count_snapshot(env: Env, round_id: u32) -> WinnerCountSnapshot
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `round_id` | `u32` |
+
+#### Return Type
+
+`WinnerCountSnapshot`
+
+## Snapshot Status Semantics
+
+- `Missing`: target round does not exist.
+- `Unresolved`: round exists but has not been resolved.
+- `Resolved`: round is finalized; `winner_count` is stable.

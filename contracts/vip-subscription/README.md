@@ -84,6 +84,52 @@ pub struct SubscriptionStatus {
 
 ---
 
+### `subscription_status(user) -> UserSubscriptionStatus`
+
+Returns a frontend-friendly subscription status that explicitly distinguishes never-subscribed, active, and expired users.
+
+```rust
+pub enum SubscriptionState {
+    NeverSubscribed,
+    Active,
+    Expired,
+}
+
+pub struct UserSubscriptionStatus {
+    pub state: SubscriptionState,
+    pub plan_id: u32,
+    pub expires_at: u64,
+    pub seconds_until_expiry: u64,
+}
+```
+
+- Never-subscribed users return `state = NeverSubscribed`, `plan_id = 0`, and `expires_at = 0`.
+- Expired subscriptions keep their stored `plan_id` and `expires_at` so clients can render renewal messaging without extra joins.
+
+---
+
+### `renewal_preview(user) -> RenewalPreview`
+
+Returns a side-effect free preview of what would happen if the user renewed now.
+
+```rust
+pub struct RenewalPreview {
+    pub state: SubscriptionState,
+    pub plan_id: u32,
+    pub can_renew: bool,
+    pub renewal_cost: i128,
+    pub renewal_duration: u64,
+    pub effective_from: u64,
+    pub next_expires_at: u64,
+}
+```
+
+- Active subscriptions preview a stacked renewal from the current `expires_at`.
+- Expired subscriptions preview reactivation from the current ledger timestamp.
+- Never-subscribed users return `can_renew = false` and zeroed timing/cost fields because `renew` requires an existing record.
+
+---
+
 ## Events
 
 | Event | Topics | Data | Emitted by |
@@ -145,5 +191,6 @@ pub struct SubscriptionStatus {
 
 - **Treasury contract** is a deployed SEP-41 token contract (e.g., USDC Stellar Asset Contract). All subscription payments are forwarded to its address via `TokenClient::transfer`.
 - **Dependents (issues #25, #26, #27, #28, #36):** Downstream contracts may call `status_of` to gate VIP-only features. No cross-contract call is required — callers read the status view directly.
+- **Status consumers:** New UI code can prefer `subscription_status` and `renewal_preview` for explicit rendering of never-subscribed, active, expired, and renewal-timing states.
 - **Off-chain services** listen for `PlanDefined`, `Subscribed`, and `Renewed` events to update user dashboards and apply benefits.
 - **Expired subscriptions** remain as storage records (not deleted) so renewal history is auditable and `renew` can reactivate without a fresh `subscribe`.

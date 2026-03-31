@@ -137,6 +137,50 @@ pub fn player_rank(env: Env, game_id: Symbol, player: Address) -> Result<u32, Er
 
 `Result<u32, Error>`
 
+### `player_rank_lookup`
+Returns explicit rank lookup metadata for a player.
+
+```rust
+pub fn player_rank_lookup(env: Env, game_id: Symbol, player: Address) -> Result<PlayerRankLookup, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `game_id` | `Symbol` |
+| `player` | `Address` |
+
+#### Return Type
+
+`Result<PlayerRankLookup, Error>`
+
+### `neighboring_slice`
+Returns entries around a ranked player with deterministic boundaries and ordering.
+
+```rust
+pub fn neighboring_slice(env: Env, game_id: Symbol, player: Address, radius: u32) -> Vec<ScoreEntry>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `game_id` | `Symbol` |
+| `player` | `Address` |
+| `radius` | `u32` |
+
+#### Return Type
+
+`Vec<ScoreEntry>`
+
+## Missing Player Behavior
+
+- `player_rank_lookup` returns `{ ranked: false, rank: 0 }`.
+- `neighboring_slice` returns an empty vector.
+
 ### `get_player_score`
 Get a player's raw score.
 
@@ -155,4 +199,3 @@ pub fn get_player_score(env: Env, game_id: Symbol, player: Address) -> u64
 #### Return Type
 
 `u64`
-

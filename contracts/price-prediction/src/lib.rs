@@ -26,7 +26,7 @@
 
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
-    token::TokenClient, Address, Env, Symbol,
+    token::TokenClient, Address, Env, Symbol, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -60,26 +60,26 @@ pub trait OracleContract {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    AlreadyInitialized  = 1,
-    NotInitialized      = 2,
-    NotAuthorized       = 3,
-    InvalidAmount       = 4,
-    InvalidDirection    = 5,
-    RoundAlreadyExists  = 6,
-    RoundNotFound       = 7,
-    AlreadySettled      = 8,
-    NotSettled          = 9,
-    RoundNotClosed      = 10,
-    RoundClosed         = 11,
-    BetAlreadyPlaced    = 12,
-    BetNotFound         = 13,
-    AlreadyClaimed      = 14,
-    NoPayout            = 15,
-    WagerTooLow         = 16,
-    WagerTooHigh        = 17,
-    Overflow            = 18,
-    InvalidCloseTime    = 19,
-    InvalidPrice        = 20,
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    NotAuthorized = 3,
+    InvalidAmount = 4,
+    InvalidDirection = 5,
+    RoundAlreadyExists = 6,
+    RoundNotFound = 7,
+    AlreadySettled = 8,
+    NotSettled = 9,
+    RoundNotClosed = 10,
+    RoundClosed = 11,
+    BetAlreadyPlaced = 12,
+    BetNotFound = 13,
+    AlreadyClaimed = 14,
+    NoPayout = 15,
+    WagerTooLow = 16,
+    WagerTooHigh = 17,
+    Overflow = 18,
+    InvalidCloseTime = 19,
+    InvalidPrice = 20,
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,7 @@ pub enum DataKey {
     HouseEdgeBps,
     Round(u64),
     Bet(BetKey),
+    Participants(u64),
 }
 
 #[contracttype]
@@ -128,6 +129,45 @@ pub struct BetData {
     pub direction: u32,
     pub wager: i128,
     pub claimed: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParticipantPosition {
+    pub player: Address,
+    pub direction: u32,
+    pub wager: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoundParticipantSummary {
+    pub has_round: bool,
+    pub round_id: u64,
+    pub accepting_predictions: bool,
+    pub is_settled: bool,
+    pub total_participants: u32,
+    pub up_participants: u32,
+    pub down_participants: u32,
+    pub total_up_wager: i128,
+    pub total_down_wager: i128,
+    pub positions: Vec<ParticipantPosition>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SettlementPreview {
+    pub has_round: bool,
+    pub round_id: u64,
+    pub is_provisional: bool,
+    pub is_settled: bool,
+    pub open_price: i128,
+    pub reference_price: i128,
+    pub projected_outcome: u32,
+    pub is_push: bool,
+    pub total_pool: i128,
+    pub projected_net_pool: i128,
+    pub projected_winning_total: i128,
 }
 
 // ---------------------------------------------------------------------------
@@ -199,11 +239,15 @@ impl PricePrediction {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::OracleContract, &oracle_contract);
+        env.storage()
+            .instance()
+            .set(&DataKey::OracleContract, &oracle_contract);
         env.storage().instance().set(&DataKey::Token, &token);
         env.storage().instance().set(&DataKey::MinWager, &min_wager);
         env.storage().instance().set(&DataKey::MaxWager, &max_wager);
-        env.storage().instance().set(&DataKey::HouseEdgeBps, &house_edge_bps);
+        env.storage()
+            .instance()
+            .set(&DataKey::HouseEdgeBps, &house_edge_bps);
         Ok(())
     }
 
@@ -250,11 +294,19 @@ impl PricePrediction {
             winning_total: 0,
         };
         env.storage().persistent().set(&round_key, &round);
-        env.storage()
-            .persistent()
-            .extend_ttl(&round_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &round_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
-        MarketOpened { round_id, asset, open_price, close_time }.publish(&env);
+        MarketOpened {
+            round_id,
+            asset,
+            open_price,
+            close_time,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -313,11 +365,7 @@ impl PricePrediction {
 
         // Transfer tokens from player to contract
         let token = get_token(&env);
-        TokenClient::new(&env, &token).transfer(
-            &player,
-            env.current_contract_address(),
-            &wager,
-        );
+        TokenClient::new(&env, &token).transfer(&player, env.current_contract_address(), &wager);
 
         // Update round totals
         if direction == DIRECTION_UP {
@@ -326,9 +374,11 @@ impl PricePrediction {
             round.total_down = round.total_down.checked_add(wager).ok_or(Error::Overflow)?;
         }
         env.storage().persistent().set(&round_key, &round);
-        env.storage()
-            .persistent()
-            .extend_ttl(&round_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &round_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         // Store bet
         let bet = BetData {
@@ -337,11 +387,35 @@ impl PricePrediction {
             claimed: false,
         };
         env.storage().persistent().set(&bet_key, &bet);
+        env.storage().persistent().extend_ttl(
+            &bet_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+
+        let participants_key = DataKey::Participants(round_id);
+        let mut participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&participants_key)
+            .unwrap_or(Vec::new(&env));
+        participants.push_back(player.clone());
         env.storage()
             .persistent()
-            .extend_ttl(&bet_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+            .set(&participants_key, &participants);
+        env.storage().persistent().extend_ttl(
+            &participants_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
-        PredictionPlaced { round_id, player, direction, wager }.publish(&env);
+        PredictionPlaced {
+            round_id,
+            player,
+            direction,
+            wager,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -396,8 +470,11 @@ impl PricePrediction {
         let (net_pool, winning_total) = if is_push {
             (0i128, 0i128)
         } else {
-            let house_edge_bps: i128 =
-                env.storage().instance().get(&DataKey::HouseEdgeBps).unwrap();
+            let house_edge_bps: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::HouseEdgeBps)
+                .unwrap();
             let fee = total_pool
                 .checked_mul(house_edge_bps)
                 .and_then(|v| v.checked_div(BASIS_POINTS_DIVISOR))
@@ -418,11 +495,20 @@ impl PricePrediction {
         round.net_pool = net_pool;
         round.winning_total = winning_total;
         env.storage().persistent().set(&round_key, &round);
-        env.storage()
-            .persistent()
-            .extend_ttl(&round_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
+        env.storage().persistent().extend_ttl(
+            &round_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
-        RoundSettled { round_id, close_price, outcome, is_push, net_pool }.publish(&env);
+        RoundSettled {
+            round_id,
+            close_price,
+            outcome,
+            is_push,
+            net_pool,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -481,18 +567,21 @@ impl PricePrediction {
         // State update before transfer (reentrancy-safe)
         bet.claimed = true;
         env.storage().persistent().set(&bet_key, &bet);
-        env.storage()
-            .persistent()
-            .extend_ttl(&bet_key, PERSISTENT_BUMP_LEDGERS, PERSISTENT_BUMP_LEDGERS);
-
-        let token = get_token(&env);
-        TokenClient::new(&env, &token).transfer(
-            &env.current_contract_address(),
-            &player,
-            &payout,
+        env.storage().persistent().extend_ttl(
+            &bet_key,
+            PERSISTENT_BUMP_LEDGERS,
+            PERSISTENT_BUMP_LEDGERS,
         );
 
-        Claimed { round_id, player, payout }.publish(&env);
+        let token = get_token(&env);
+        TokenClient::new(&env, &token).transfer(&env.current_contract_address(), &player, &payout);
+
+        Claimed {
+            round_id,
+            player,
+            payout,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -510,6 +599,139 @@ impl PricePrediction {
             .persistent()
             .get(&DataKey::Bet(BetKey { round_id, player }))
             .ok_or(Error::BetNotFound)
+    }
+
+    /// Return a compact participant summary for a round.
+    ///
+    /// Missing rounds return `has_round = false` and an empty participant list.
+    pub fn participant_summary(env: Env, round_id: u64) -> RoundParticipantSummary {
+        let Some(round) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, RoundData>(&DataKey::Round(round_id))
+        else {
+            return RoundParticipantSummary {
+                has_round: false,
+                round_id,
+                accepting_predictions: false,
+                is_settled: false,
+                total_participants: 0,
+                up_participants: 0,
+                down_participants: 0,
+                total_up_wager: 0,
+                total_down_wager: 0,
+                positions: Vec::new(&env),
+            };
+        };
+
+        let participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Participants(round_id))
+            .unwrap_or(Vec::new(&env));
+
+        let mut positions = Vec::new(&env);
+        let mut up_participants = 0u32;
+        let mut down_participants = 0u32;
+
+        for player in participants.iter() {
+            if let Some(bet) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, BetData>(&DataKey::Bet(BetKey {
+                    round_id,
+                    player: player.clone(),
+                }))
+            {
+                if bet.direction == DIRECTION_UP {
+                    up_participants = up_participants.saturating_add(1);
+                } else {
+                    down_participants = down_participants.saturating_add(1);
+                }
+
+                positions.push_back(ParticipantPosition {
+                    player,
+                    direction: bet.direction,
+                    wager: bet.wager,
+                });
+            }
+        }
+
+        RoundParticipantSummary {
+            has_round: true,
+            round_id,
+            accepting_predictions: !round.settled && env.ledger().timestamp() < round.close_time,
+            is_settled: round.settled,
+            total_participants: positions.len(),
+            up_participants,
+            down_participants,
+            total_up_wager: round.total_up,
+            total_down_wager: round.total_down,
+            positions,
+        }
+    }
+
+    /// Preview settlement using the round's current wagers and the oracle's
+    /// current price feed. Before final settlement this view is provisional.
+    pub fn settlement_preview(env: Env, round_id: u64) -> SettlementPreview {
+        let Some(round) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, RoundData>(&DataKey::Round(round_id))
+        else {
+            return SettlementPreview {
+                has_round: false,
+                round_id,
+                is_provisional: false,
+                is_settled: false,
+                open_price: 0,
+                reference_price: 0,
+                projected_outcome: OUTCOME_FLAT,
+                is_push: true,
+                total_pool: 0,
+                projected_net_pool: 0,
+                projected_winning_total: 0,
+            };
+        };
+
+        if round.settled {
+            return SettlementPreview {
+                has_round: true,
+                round_id,
+                is_provisional: false,
+                is_settled: true,
+                open_price: round.open_price,
+                reference_price: round.close_price,
+                projected_outcome: round.outcome,
+                is_push: round.is_push,
+                total_pool: round.total_up.saturating_add(round.total_down),
+                projected_net_pool: round.net_pool,
+                projected_winning_total: round.winning_total,
+            };
+        }
+
+        let reference_price = OracleClient::new(&env, &get_oracle(&env)).get_price(&round.asset);
+        let house_edge_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::HouseEdgeBps)
+            .unwrap();
+        let (projected_outcome, is_push, total_pool, projected_net_pool, projected_winning_total) =
+            preview_settlement_values(&round, reference_price, house_edge_bps);
+
+        SettlementPreview {
+            has_round: true,
+            round_id,
+            is_provisional: true,
+            is_settled: false,
+            open_price: round.open_price,
+            reference_price,
+            projected_outcome,
+            is_push,
+            total_pool,
+            projected_net_pool,
+            projected_winning_total,
+        }
     }
 }
 
@@ -546,6 +768,47 @@ fn get_oracle(env: &Env) -> Address {
         .instance()
         .get(&DataKey::OracleContract)
         .expect("PricePrediction: oracle not set")
+}
+
+fn preview_settlement_values(
+    round: &RoundData,
+    reference_price: i128,
+    house_edge_bps: i128,
+) -> (u32, bool, i128, i128, i128) {
+    let total_pool = round.total_up.saturating_add(round.total_down);
+
+    let outcome = if reference_price > round.open_price {
+        OUTCOME_UP
+    } else if reference_price < round.open_price {
+        OUTCOME_DOWN
+    } else {
+        OUTCOME_FLAT
+    };
+
+    let is_push =
+        outcome == OUTCOME_FLAT || total_pool == 0 || round.total_up == 0 || round.total_down == 0;
+
+    if is_push {
+        return (outcome, true, total_pool, 0, 0);
+    }
+
+    let fee = total_pool
+        .saturating_mul(house_edge_bps)
+        .saturating_div(BASIS_POINTS_DIVISOR);
+    let projected_net_pool = total_pool.saturating_sub(fee);
+    let projected_winning_total = if outcome == OUTCOME_UP {
+        round.total_up
+    } else {
+        round.total_down
+    };
+
+    (
+        outcome,
+        false,
+        total_pool,
+        projected_net_pool,
+        projected_winning_total,
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -71,6 +71,85 @@ fn test_current_streak_zero_for_unknown_user() {
 }
 
 #[test]
+fn test_streak_summary_for_new_player() {
+    let env = Env::default();
+    let (client, _, _, _) = setup(&env);
+    let unknown = Address::generate(&env);
+
+    let summary = client.streak_summary(&unknown, &1_000u64);
+    assert_eq!(summary.status, StreakSummaryStatus::Missing);
+    assert_eq!(summary.active_streak, 0);
+    assert_eq!(summary.last_recorded_streak, 0);
+    assert_eq!(summary.last_claimed_streak, 0);
+    assert_eq!(summary.last_activity_ts, 0);
+    assert_eq!(summary.streak_window_ends_at, 0);
+}
+
+#[test]
+fn test_streak_summary_for_active_streak() {
+    let env = Env::default();
+    let (client, _, _, user) = setup(&env);
+    env.mock_all_auths();
+
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &1_000u64);
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &2_000u64);
+
+    let summary = client.streak_summary(&user, &2_500u64);
+    assert_eq!(summary.status, StreakSummaryStatus::Active);
+    assert_eq!(summary.active_streak, 2);
+    assert_eq!(summary.last_recorded_streak, 2);
+    assert_eq!(summary.last_activity_ts, 2_000);
+    assert_eq!(summary.streak_window_ends_at, 2_000 + 86_400);
+}
+
+#[test]
+fn test_streak_summary_for_broken_streak() {
+    let env = Env::default();
+    let (client, _, _, user) = setup(&env);
+    env.mock_all_auths();
+
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &1_000u64);
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &2_000u64);
+
+    let summary = client.streak_summary(&user, &100_000u64);
+    assert_eq!(summary.status, StreakSummaryStatus::Reset);
+    assert_eq!(summary.active_streak, 0);
+    assert_eq!(summary.last_recorded_streak, 2);
+    assert_eq!(summary.last_activity_ts, 2_000);
+}
+
+#[test]
+fn test_next_bonus_preview_tracks_threshold_and_reward() {
+    let env = Env::default();
+    let (client, _, _, user) = setup(&env);
+    env.mock_all_auths();
+
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &1_000u64);
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &2_000u64);
+
+    let preview = client.next_bonus_preview(&user, &2_500u64);
+    assert_eq!(preview.status, StreakSummaryStatus::Active);
+    assert_eq!(preview.active_streak, 2);
+    assert_eq!(preview.threshold_streak, 3);
+    assert_eq!(preview.streaks_needed, 1);
+    assert_eq!(preview.projected_reward, 3_000_000);
+    assert!(!preview.claimable_now);
+
+    client.record_activity(&user, &user, &Symbol::new(&env, "play"), &3_000u64);
+    let claimable = client.next_bonus_preview(&user, &3_500u64);
+    assert_eq!(claimable.threshold_streak, 3);
+    assert_eq!(claimable.projected_reward, 3_000_000);
+    assert!(claimable.claimable_now);
+
+    client.claim_streak_bonus(&user);
+    let next_target = client.next_bonus_preview(&user, &3_500u64);
+    assert_eq!(next_target.threshold_streak, 4);
+    assert_eq!(next_target.streaks_needed, 1);
+    assert_eq!(next_target.projected_reward, 4_000_000);
+    assert!(!next_target.claimable_now);
+}
+
+#[test]
 fn test_claim_requires_min_streak() {
     let env = Env::default();
     let (client, _, _, user) = setup(&env);

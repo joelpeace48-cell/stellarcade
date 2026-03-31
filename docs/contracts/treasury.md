@@ -120,3 +120,26 @@ pub fn treasury_state(env: Env) -> Result<TreasuryState, Error>
 
 `Result<TreasuryState, Error>`
 
+### `policy_snapshot`
+Returns treasury policy configuration and signer-threshold metadata.
+
+```rust
+pub fn policy_snapshot(env: Env) -> Result<TreasuryPolicySnapshot, Error>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+
+#### Return Type
+
+`Result<TreasuryPolicySnapshot, Error>`
+
+## Initialization Semantics
+
+- Uninitialized treasury returns `initialized = false`, `signer_count = 0`, and
+  `approval_threshold = 0`.
+- Configured treasury returns `initialized = true` with current admin/token,
+  plus signer-threshold metadata for policy inspection.

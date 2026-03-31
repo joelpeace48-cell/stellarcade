@@ -43,19 +43,19 @@ pub const PERSISTENT_BUMP_LEDGERS: u32 = 518_400;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    NotInitialized     = 1,
-    NotAuthorized      = 2,
-    RoundNotFound      = 3,
+    NotInitialized = 1,
+    NotAuthorized = 2,
+    RoundNotFound = 3,
     RoundAlreadyExists = 4,
-    RoundNotOpen       = 5,
-    RoundNotResolved   = 6,
-    AlreadySubmitted   = 7,
-    AlreadyClaimed     = 8,
-    NoRewardAvailable  = 9,
-    InvalidAmount      = 10,
-    Overflow           = 11,
+    RoundNotOpen = 5,
+    RoundNotResolved = 6,
+    AlreadySubmitted = 7,
+    AlreadyClaimed = 8,
+    NoRewardAvailable = 9,
+    InvalidAmount = 10,
+    Overflow = 11,
     CommitmentMismatch = 12,
-    RoundFull          = 13,
+    RoundFull = 13,
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ pub enum Error {
 #[contracttype]
 #[derive(Clone, PartialEq)]
 pub enum RoundStatus {
-    Open     = 0,
+    Open = 0,
     Resolved = 1,
 }
 
@@ -77,17 +77,17 @@ pub enum RoundStatus {
 pub struct RoundData {
     /// SHA-256 hash of the correct pattern, committed before submissions open.
     pub pattern_commitment: BytesN<32>,
-    pub status:             RoundStatus,
+    pub status: RoundStatus,
     /// Set during resolve_round after iterating all submissions.
-    pub winner_count:       u32,
+    pub winner_count: u32,
     /// Populated only after resolve_round; empty Bytes while status is Open.
-    pub correct_pattern:    Bytes,
+    pub correct_pattern: Bytes,
     /// Amount each player must wager to enter (0 = free round).
-    pub entry_fee:          i128,
+    pub entry_fee: i128,
     /// Accumulated from all submitted entry fees.
-    pub total_pot:          i128,
+    pub total_pot: i128,
     /// Current number of submissions; enforces MAX_PLAYERS_PER_ROUND.
-    pub player_count:       u32,
+    pub player_count: u32,
 }
 
 /// A player's committed guess for a round.
@@ -95,7 +95,7 @@ pub struct RoundData {
 #[derive(Clone)]
 pub struct PlayerSubmission {
     pub solution: Bytes,
-    pub wager:    i128,
+    pub wager: i128,
 }
 
 /// Storage key discriminants.
@@ -112,6 +112,7 @@ pub enum DataKey {
     Admin,
     PrizePoolContract,
     BalanceContract,
+    LatestRoundId,
     // --- persistent() keys: round and player data ---
     /// RoundData keyed by round_id.
     Round(u32),
@@ -123,6 +124,33 @@ pub enum DataKey {
     IsWinner(u32, Address),
     /// Set to `true` during claim_reward to prevent double-claims.
     Claimed(u32, Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SnapshotStatus {
+    Missing = 0,
+    Unresolved = 1,
+    Resolved = 2,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RoundCommitmentSummary {
+    pub status: SnapshotStatus,
+    pub round_id: u32,
+    pub pattern_commitment: BytesN<32>,
+    pub player_count: u32,
+    pub entry_fee: i128,
+    pub total_pot: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct WinnerCountSnapshot {
+    pub status: SnapshotStatus,
+    pub round_id: u32,
+    pub winner_count: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -181,10 +209,10 @@ impl PatternPuzzle {
     /// address in instance storage. Subsequent calls are rejected with
     /// `NotAuthorized`.
     pub fn init(
-        env:                 Env,
-        admin:               Address,
+        env: Env,
+        admin: Address,
         prize_pool_contract: Address,
-        balance_contract:    Address,
+        balance_contract: Address,
     ) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::NotAuthorized);
@@ -192,9 +220,13 @@ impl PatternPuzzle {
 
         admin.require_auth();
 
-        env.storage().instance().set(&DataKey::Admin,             &admin);
-        env.storage().instance().set(&DataKey::PrizePoolContract, &prize_pool_contract);
-        env.storage().instance().set(&DataKey::BalanceContract,   &balance_contract);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PrizePoolContract, &prize_pool_contract);
+        env.storage()
+            .instance()
+            .set(&DataKey::BalanceContract, &balance_contract);
 
         Ok(())
     }
@@ -209,11 +241,11 @@ impl PatternPuzzle {
     /// `entry_fee` is the token amount each player must wager (0 for free rounds).
     /// Round data is stored in persistent storage with a 30-day TTL.
     pub fn create_puzzle(
-        env:                Env,
-        admin:              Address,
-        round_id:           u32,
+        env: Env,
+        admin: Address,
+        round_id: u32,
         pattern_commitment: BytesN<32>,
-        entry_fee:          i128,
+        entry_fee: i128,
     ) -> Result<(), Error> {
         let stored_admin: Address = env
             .storage()
@@ -236,29 +268,40 @@ impl PatternPuzzle {
 
         let round = RoundData {
             pattern_commitment: pattern_commitment.clone(),
-            status:             RoundStatus::Open,
-            winner_count:       0,
-            correct_pattern:    Bytes::new(&env),
+            status: RoundStatus::Open,
+            winner_count: 0,
+            correct_pattern: Bytes::new(&env),
             entry_fee,
-            total_pot:          0,
-            player_count:       0,
+            total_pot: 0,
+            player_count: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Round(round_id), &round);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Round(round_id), &round);
+        env.storage()
+            .instance()
+            .set(&DataKey::LatestRoundId, &round_id);
         env.storage().persistent().extend_ttl(
             &DataKey::Round(round_id),
             PERSISTENT_BUMP_LEDGERS,
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        env.storage().persistent().set(&DataKey::Players(round_id), &Vec::<Address>::new(&env));
+        env.storage()
+            .persistent()
+            .set(&DataKey::Players(round_id), &Vec::<Address>::new(&env));
         env.storage().persistent().extend_ttl(
             &DataKey::Players(round_id),
             PERSISTENT_BUMP_LEDGERS,
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        RoundCreated { round_id, pattern_commitment }.publish(&env);
+        RoundCreated {
+            round_id,
+            pattern_commitment,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -274,8 +317,8 @@ impl PatternPuzzle {
     /// revealed pattern during `resolve_round`. Entry fee accounting is updated here;
     /// actual token transfer should invoke the balance contract (see TODO below).
     pub fn submit_solution(
-        env:      Env,
-        player:   Address,
+        env: Env,
+        player: Address,
         round_id: u32,
         solution: Bytes,
     ) -> Result<(), Error> {
@@ -309,7 +352,7 @@ impl PatternPuzzle {
 
         let submission = PlayerSubmission {
             solution: solution.clone(),
-            wager:    round.entry_fee,
+            wager: round.entry_fee,
         };
         env.storage()
             .persistent()
@@ -342,18 +385,22 @@ impl PatternPuzzle {
             .total_pot
             .checked_add(round.entry_fee)
             .ok_or(Error::Overflow)?;
-        round.player_count = round
-            .player_count
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        env.storage().persistent().set(&DataKey::Round(round_id), &round);
+        round.player_count = round.player_count.checked_add(1).ok_or(Error::Overflow)?;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Round(round_id), &round);
         env.storage().persistent().extend_ttl(
             &DataKey::Round(round_id),
             PERSISTENT_BUMP_LEDGERS,
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        SolutionSubmitted { player, round_id, solution }.publish(&env);
+        SolutionSubmitted {
+            player,
+            round_id,
+            solution,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -369,9 +416,9 @@ impl PatternPuzzle {
     /// `MAX_PLAYERS_PER_ROUND`) to mark winners and compute `winner_count`.
     /// Transitions the round to `Resolved`.
     pub fn resolve_round(
-        env:             Env,
-        admin:           Address,
-        round_id:        u32,
+        env: Env,
+        admin: Address,
+        round_id: u32,
         correct_pattern: Bytes,
     ) -> Result<(), Error> {
         let stored_admin: Address = env
@@ -431,17 +478,24 @@ impl PatternPuzzle {
             }
         }
 
-        round.status          = RoundStatus::Resolved;
+        round.status = RoundStatus::Resolved;
         round.correct_pattern = correct_pattern.clone();
-        round.winner_count    = winner_count;
-        env.storage().persistent().set(&DataKey::Round(round_id), &round);
+        round.winner_count = winner_count;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Round(round_id), &round);
         env.storage().persistent().extend_ttl(
             &DataKey::Round(round_id),
             PERSISTENT_BUMP_LEDGERS,
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        RoundResolved { round_id, correct_pattern, winner_count }.publish(&env);
+        RoundResolved {
+            round_id,
+            correct_pattern,
+            winner_count,
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -455,11 +509,7 @@ impl PatternPuzzle {
     /// Returns the reward amount (`total_pot / winner_count`). The `Claimed` flag
     /// is set before any external call to preserve reentrancy safety. Actual token
     /// transfer should invoke the prize pool contract (see TODO below).
-    pub fn claim_reward(
-        env:      Env,
-        player:   Address,
-        round_id: u32,
-    ) -> Result<i128, Error> {
+    pub fn claim_reward(env: Env, player: Address, round_id: u32) -> Result<i128, Error> {
         player.require_auth();
 
         let round: RoundData = env
@@ -512,7 +562,12 @@ impl PatternPuzzle {
         // TODO: Invoke prize_pool_contract to transfer `reward` tokens to `player`.
         // prize_pool_contract_client::new(&env, &prize_pool_contract).payout(&player, &reward);
 
-        RewardClaimed { player, round_id, amount: reward }.publish(&env);
+        RewardClaimed {
+            player,
+            round_id,
+            amount: reward,
+        }
+        .publish(&env);
 
         Ok(reward)
     }
@@ -553,12 +608,76 @@ impl PatternPuzzle {
 
         let l = limit.unwrap_or(players.len());
         let n = if l > players.len() { players.len() } else { l };
-        
+
         let mut result = Vec::new(&env);
         for i in 0..n {
             result.push_back(players.get(i).unwrap());
         }
         result
+    }
+
+    /// Returns commitment metadata for the latest known round.
+    pub fn get_round_commitment_summary(env: Env) -> Result<RoundCommitmentSummary, Error> {
+        let Some(round_id) = env
+            .storage()
+            .instance()
+            .get::<DataKey, u32>(&DataKey::LatestRoundId)
+        else {
+            return Ok(RoundCommitmentSummary {
+                status: SnapshotStatus::Missing,
+                round_id: 0,
+                pattern_commitment: BytesN::from_array(&env, &[0; 32]),
+                player_count: 0,
+                entry_fee: 0,
+                total_pot: 0,
+            });
+        };
+
+        let round: RoundData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .ok_or(Error::RoundNotFound)?;
+
+        Ok(RoundCommitmentSummary {
+            status: match round.status {
+                RoundStatus::Open => SnapshotStatus::Unresolved,
+                RoundStatus::Resolved => SnapshotStatus::Resolved,
+            },
+            round_id,
+            pattern_commitment: round.pattern_commitment,
+            player_count: round.player_count,
+            entry_fee: round.entry_fee,
+            total_pot: round.total_pot,
+        })
+    }
+
+    /// Returns winner count for a specific round, with explicit status.
+    pub fn get_winner_count_snapshot(env: Env, round_id: u32) -> WinnerCountSnapshot {
+        let Some(round) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, RoundData>(&DataKey::Round(round_id))
+        else {
+            return WinnerCountSnapshot {
+                status: SnapshotStatus::Missing,
+                round_id,
+                winner_count: 0,
+            };
+        };
+
+        match round.status {
+            RoundStatus::Open => WinnerCountSnapshot {
+                status: SnapshotStatus::Unresolved,
+                round_id,
+                winner_count: 0,
+            },
+            RoundStatus::Resolved => WinnerCountSnapshot {
+                status: SnapshotStatus::Resolved,
+                round_id,
+                winner_count: round.winner_count,
+            },
+        }
     }
 }
 

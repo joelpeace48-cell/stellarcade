@@ -1,128 +1,159 @@
 .stellarcade-action-toolbar {
-    display: flex;
-    gap: 8px;
-    padding: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
-    width: fit-content;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  width: fit-content;
 }
 
 .stellarcade-action-toolbar--horizontal {
-    flex-direction: row;
-    align-items: center;
+  flex-direction: row;
+  align-items: center;
 }
 
 .stellarcade-action-toolbar--vertical {
-    flex-direction: column;
-    align-items: stretch;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .stellarcade-toolbar-item {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px 16px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    position: relative;
-    outline: none;
-    min-width: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  position: relative;
+  outline: none;
+  min-width: 80px;
 }
 
 .stellarcade-toolbar-item:focus-visible {
-    box-shadow: 0 0 0 2px var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 2px var(--primary-color, #3b82f6);
 }
 
 /* Intents */
 .stellarcade-toolbar-item--primary {
-    background: var(--primary-color, #3b82f6);
-    color: white;
+  background: var(--primary-color, #3b82f6);
+  color: white;
 }
 
 .stellarcade-toolbar-item--primary:hover:not(:disabled) {
-    background: var(--primary-color-hover, #2563eb);
+  background: var(--primary-color-hover, #2563eb);
 }
 
 .stellarcade-toolbar-item--secondary {
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .stellarcade-toolbar-item--secondary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .stellarcade-toolbar-item--tertiary {
-    background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .stellarcade-toolbar-item--tertiary:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.05);
-    color: white;
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
 }
 
 /* States */
 .stellarcade-toolbar-item:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .stellarcade-toolbar-item--loading {
-    color: transparent !important;
+  color: transparent !important;
 }
 
 .stellarcade-toolbar-spinner {
-    position: absolute;
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: stellarcade-toolbar-spin 0.6s linear infinite;
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: stellarcade-toolbar-spin 0.6s linear infinite;
 }
 
 .stellarcade-toolbar-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
 }
 
 @keyframes stellarcade-toolbar-spin {
-    to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Responsive adjustments */
 @media (max-width: 600px) {
-    .stellarcade-action-toolbar--horizontal {
-        flex-wrap: wrap;
-    }
-    
-    .stellarcade-toolbar-item {
-        flex: 1;
-    }
+  .stellarcade-action-toolbar--horizontal {
+    flex-wrap: wrap;
+  }
+
+  .stellarcade-toolbar-item {
+    width: 100%;
+    height: 48px; /* Larger touch target for thumbs */
+    font-size: 16px; /* Prevent zoom on some mobile browsers */
+  }
 }
 
 .stellarcade-toolbar-item-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1;
 }
 
 .stellarcade-toolbar-disabled-reason {
-    margin: 0;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
-    line-height: 1.3;
-    text-align: center;
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.3;
+  text-align: center;
+}
+.stellarcade-action-toolbar {
+  /* Anchor to bottom */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%; 
+  border-radius: 0;
+
+  background: rgba(15, 15, 15, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+
+  /* Safe area handling for iOS/Android notches */
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+
+  z-index: 999;
+  box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.4);
+
+  /* Layout logic */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
 }

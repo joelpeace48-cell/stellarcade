@@ -20,10 +20,10 @@ const rows: Row[] = [
 
 // Stub URL.createObjectURL / revokeObjectURL for happy-dom environment.
 const mockObjectUrl = 'blob:test';
-let createObjectURLSpy: any;
-let revokeObjectURLSpy: any;
-let appendChildSpy: any;
-let originalAppendChild: typeof document.body.appendChild;
+let createObjectURLSpy: ReturnType<typeof vi.fn>;
+let revokeObjectURLSpy: ReturnType<typeof vi.fn>;
+let appendChildSpy: ReturnType<typeof vi.spyOn>;
+let removeChildSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   createObjectURLSpy = vi.fn(() => mockObjectUrl);

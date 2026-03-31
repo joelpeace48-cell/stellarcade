@@ -46,6 +46,13 @@ pub struct ScoreEntry {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlayerRankLookup {
+    pub ranked: bool,
+    pub rank: u32,
+}
+
+#[contracttype]
 pub enum DataKey {
     Admin,
     Authorized(Address),
@@ -241,6 +248,62 @@ impl LeaderboardContract {
         }
 
         Ok(0)
+    }
+
+    /// Returns explicit rank lookup metadata for a player.
+    pub fn player_rank_lookup(
+        env: Env,
+        game_id: Symbol,
+        player: Address,
+    ) -> Result<PlayerRankLookup, Error> {
+        let rank = Self::player_rank(env, game_id, player)?;
+        Ok(PlayerRankLookup {
+            ranked: rank > 0,
+            rank,
+        })
+    }
+
+    /// Returns a deterministic rank-ordered slice around `player`.
+    ///
+    /// `radius` controls how many neighbors above and below are included.
+    /// Returns an empty slice if the player is not currently ranked.
+    pub fn neighboring_slice(
+        env: Env,
+        game_id: Symbol,
+        player: Address,
+        radius: u32,
+    ) -> Vec<ScoreEntry> {
+        let leaderboard: Vec<ScoreEntry> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Leaderboard(game_id))
+            .unwrap_or(Vec::new(&env));
+
+        let mut center: Option<u32> = None;
+        for i in 0..leaderboard.len() {
+            if leaderboard.get_unchecked(i).player == player {
+                center = Some(i);
+                break;
+            }
+        }
+
+        let Some(center_idx) = center else {
+            return Vec::new(&env);
+        };
+
+        let start = center_idx.saturating_sub(radius);
+        let mut end = center_idx
+            .checked_add(radius)
+            .unwrap_or(MAX_LEADERBOARD_SIZE - 1);
+        if end >= leaderboard.len() {
+            end = leaderboard.len().saturating_sub(1);
+        }
+
+        let mut result = Vec::new(&env);
+        for i in start..=end {
+            result.push_back(leaderboard.get_unchecked(i));
+        }
+        result
     }
 
     /// Get a player's raw score.
