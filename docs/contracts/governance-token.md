@@ -157,3 +157,56 @@ pub fn decimals(env: Env) -> u32
 
 `u32`
 
+### `latest_checkpoint`
+Returns the most recent voting checkpoint for `holder`. Returns `None` when the holder has no recorded history.
+
+```rust
+pub fn latest_checkpoint(env: Env, holder: Address) -> Option<Checkpoint>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `holder` | `Address` |
+
+#### Return Type
+
+`Option<Checkpoint>`
+
+### `checkpoint_history`
+Returns up to `limit` most-recent checkpoints for `holder`, ordered oldest-first. `limit` is capped at 50. Returns an empty vec for unknown holders.
+
+```rust
+pub fn checkpoint_history(env: Env, holder: Address, limit: u32) -> Vec<Checkpoint>
+```
+
+#### Parameters
+
+| Name | Type |
+|------|------|
+| `env` | `Env` |
+| `holder` | `Address` |
+| `limit` | `u32` |
+
+#### Return Type
+
+`Vec<Checkpoint>`
+
+## Checkpoint Type
+
+```rust
+pub struct Checkpoint {
+    pub ledger: u32,   // Ledger sequence at which the snapshot was taken
+    pub balance: i128, // Holder balance at that ledger
+}
+```
+
+## Checkpoint Ordering & Retention
+
+- Checkpoints are stored per holder in ascending ledger-sequence order (oldest → newest).
+- Multiple balance changes within the same ledger overwrite the single entry for that ledger.
+- A maximum of 50 checkpoints are retained per holder; the oldest is evicted when the cap is reached.
+- Unknown holders return `None` (latest) or an empty list (history) — never an ambiguous zero state.
+

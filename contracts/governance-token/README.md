@@ -22,11 +22,26 @@ Returns the current total supply of tokens.
 ### `balance_of(owner: Address) -> i128`
 Returns the token balance of the specified owner.
 
+### `latest_checkpoint(holder: Address) -> Option<Checkpoint>`
+Returns the most recent voting checkpoint for `holder`, or `None` if the holder has no recorded history. A checkpoint captures the holder's balance at a specific ledger sequence number.
+
+### `checkpoint_history(holder: Address, limit: u32) -> Vec<Checkpoint>`
+Returns up to `limit` most-recent checkpoints for `holder`, ordered oldest-first. `limit` is capped at 50. Returns an empty list for unknown holders.
+
+## Checkpoint Behavior
+
+- A `Checkpoint { ledger, balance }` is written whenever a holder's balance changes (mint, burn, or transfer).
+- Checkpoints are ordered by ledger sequence (ascending) and the list is oldest-first.
+- If two balance changes occur within the same ledger, the existing entry for that ledger is overwritten rather than duplicated.
+- At most 50 checkpoints are retained per holder; the oldest entry is evicted when the cap is reached.
+- Querying an unknown holder via either accessor returns a deterministic empty/`None` result — never an ambiguous zero state.
+
 ## Storage
 
 - `Admin`: The address with administrative privileges.
 - `TotalSupply`: Current total number of tokens in circulation.
 - `Balances`: Mapping of addresses to their respective token balances.
+- `Checkpoints`: Per-holder ordered list of `Checkpoint` entries (bounded to 50).
 
 ## Events
 
