@@ -46,6 +46,32 @@
   gap: 0.6rem;
 }
 
+.cef__density-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border: 1px solid var(--cef-border);
+  border-radius: 999px;
+}
+
+.cef__density-button {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cef-text-muted);
+  font-family: var(--cef-font-mono);
+  font-size: 11px;
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+}
+
+.cef__density-button.is-active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--cef-text-primary);
+}
+
 .cef__title {
   margin: 0;
   font-size: 13px;
@@ -386,6 +412,30 @@
 
 .cef-event-row__contract {
   text-align: right;
+}
+
+.cef--compact {
+  font-size: 12px;
+}
+
+.cef--compact .cef__header,
+.cef--compact .cef__filters,
+.cef--compact .cef__presets {
+  padding-block: 0.55rem;
+}
+
+.cef--compact .cef-event-row {
+  grid-template-columns: 68px 96px 88px 1fr;
+  min-height: 34px;
+  padding: 4px 0.75rem;
+}
+
+.cef--compact .cef-event-row__time,
+.cef--compact .cef-event-row__type,
+.cef--compact .cef-event-row__id,
+.cef--compact .cef-event-row__contract,
+.cef--compact .cef__count {
+  font-size: 10px;
 }
 
 .cef__sr-only {

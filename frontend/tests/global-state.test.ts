@@ -8,6 +8,8 @@ import {
   getSavedFilterPresets,
   saveFilterPreset,
   deleteSavedFilterPreset,
+  getTableDensityPreference,
+  persistTableDensityPreference,
 } from "../src/services/global-state-store";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { NetworkGuardBanner } from "../src/components/v1/NetworkGuardBanner";
@@ -173,5 +175,14 @@ describe("GlobalStateStore", () => {
     const presets = getSavedFilterPresets("events");
     expect(presets).toHaveLength(1);
     expect(presets[0].values).toEqual(["transfer"]);
+  });
+
+  it("persists and restores table density preferences by scope", () => {
+    expect(getTableDensityPreference("leaderboard")).toBe("standard");
+
+    persistTableDensityPreference("leaderboard", "compact");
+
+    expect(getTableDensityPreference("leaderboard")).toBe("compact");
+    expect(getTableDensityPreference("events")).toBe("standard");
   });
 });

@@ -9,6 +9,7 @@ import {
   getSavedFilterPresets,
   recordRecentFilter,
   getRecentFilters,
+  getTableDensityPreference,
 } from '@/services/global-state-store';
 import { Timeline } from '@/components/v1/Timeline';
 import type { TimelineItemData } from '@/components/v1/Timeline';
@@ -816,7 +817,7 @@ describe('eventToTimelineItem', () => {
     const event: ContractEvent = {
       id: 'e1',
       type: 'game_end',
-      contractId: null,
+      contractId: undefined,
       timestamp: new Date().toISOString(),
       data: null,
     };
@@ -827,7 +828,7 @@ describe('eventToTimelineItem', () => {
     const event: ContractEvent = {
       id: 'e2',
       type: undefined as unknown as string,
-      contractId: null,
+      contractId: undefined,
       timestamp: new Date().toISOString(),
       data: null,
     };
@@ -838,7 +839,7 @@ describe('eventToTimelineItem', () => {
     const event: ContractEvent = {
       id: 'e3',
       type: 'win',
-      contractId: null,
+      contractId: undefined,
       timestamp: 'not-a-date',
       data: null,
     };
@@ -861,11 +862,40 @@ describe('eventToTimelineItem', () => {
     const event: ContractEvent = {
       id: 'e5',
       type: 'burn',
-      contractId: null,
+      contractId: undefined,
       timestamp: new Date().toISOString(),
       data: null,
     };
     expect(eventToTimelineItem(event).metadata).toBeNull();
+  });
+});
+
+describe('ContractEventFeed - density preference', () => {
+  it('toggles compact density and persists the preference', () => {
+    mockEvents = [makeEvent({ id: 'density-1' })];
+
+    renderFeed({ densityScope: 'events-density-scope' });
+
+    fireEvent.click(screen.getByTestId('contract-event-feed-density-compact'));
+
+    expect(screen.getByTestId('contract-event-feed')).toHaveClass('cef--compact');
+    expect(screen.getByTestId('contract-event-feed-density-compact')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(getTableDensityPreference('events-density-scope')).toBe('compact');
+  });
+
+  it('restores persisted compact density on remount', () => {
+    localStorage.setItem('stc_table_density_v1_events-density-restore', 'compact');
+
+    renderFeed({ densityScope: 'events-density-restore' });
+
+    expect(screen.getByTestId('contract-event-feed')).toHaveClass('cef--compact');
+    expect(screen.getByTestId('contract-event-feed-density-compact')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });
 

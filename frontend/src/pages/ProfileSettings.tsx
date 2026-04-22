@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClient } from '@/services/typed-api-sdk';
+import { SkeletonPreset } from '@/components/v1/LoadingSkeletonSet';
 import GlobalStateStore from '@/services/global-state-store';
 import { useWalletStatus } from '@/hooks/v1/useWalletStatus';
 import type { UserProfile } from '@/types/api-client';
@@ -133,12 +134,17 @@ const ProfileSettings: React.FC = () => {
   };
 
   if (loading) {
-    return <div data-testid="profile-settings-loading">Loading profile settings...</div>;
+    return (
+      <div data-testid="profile-settings-loading" role="status" aria-live="polite">
+        <p>Loading profile settings...</p>
+        <SkeletonPreset type="detail" />
+      </div>
+    );
   }
 
   return (
-    <section className="profile-settings" role="region" aria-label="Profile settings">
-      <h2>Profile Settings</h2>
+    <section className="profile-settings" aria-labelledby="profile-settings-heading">
+      <h1 id="profile-settings-heading">Profile Settings</h1>
 
       {error && (
         <div role="alert" className="error-message" data-testid="profile-settings-error">

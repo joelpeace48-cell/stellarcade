@@ -104,6 +104,16 @@
 }
 
 @media (max-width: 1023px) {
+  .app-sidebar {
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  .app-sidebar.is-mobile-open {
+    pointer-events: auto;
+    visibility: visible;
+  }
+
   .app-sidebar__desktop-collapse {
     display: none;
   }

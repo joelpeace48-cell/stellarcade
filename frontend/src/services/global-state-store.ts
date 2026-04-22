@@ -21,6 +21,7 @@ const NOTIFICATION_PREFERENCES_KEY = "stc_notification_preferences_v1";
 const EVENT_FEED_FILTER_KEY_PREFIX = "stc_feed_filter_v1";
 const FILTER_PRESET_STORAGE_KEY = "stc_feed_filter_presets_v1";
 const FILTER_PRESET_VERSION = 1;
+const TABLE_DENSITY_KEY_PREFIX = "stc_table_density_v1";
 
 /**
  * Flag key used to track whether the first-time onboarding checklist has been
@@ -33,6 +34,8 @@ export interface BannerDismissalEntry {
   identity: string;
   dismissedAt: number;
 }
+
+export type TableDensityPreference = "standard" | "compact";
 
 const initialState: GlobalState = {
   auth: { isAuthenticated: false },
@@ -250,6 +253,41 @@ export class GlobalStateStore {
 
 function isStorageAvailable(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
+}
+
+function tableDensityStorageKey(scope: string): string {
+  return `${TABLE_DENSITY_KEY_PREFIX}_${scope}`;
+}
+
+export function getTableDensityPreference(
+  scope: string,
+  fallback: TableDensityPreference = "standard",
+): TableDensityPreference {
+  if (!isStorageAvailable() || !scope) {
+    return fallback;
+  }
+
+  try {
+    const raw = localStorage.getItem(tableDensityStorageKey(scope));
+    return raw === "compact" ? "compact" : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function persistTableDensityPreference(
+  scope: string,
+  density: TableDensityPreference,
+): void {
+  if (!isStorageAvailable() || !scope) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(tableDensityStorageKey(scope), density);
+  } catch {
+    // no-op
+  }
 }
 
 export function getPersistedBannerDismissals(): Record<string, BannerDismissalEntry> {

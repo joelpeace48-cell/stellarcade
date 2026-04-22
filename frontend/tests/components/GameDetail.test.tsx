@@ -39,6 +39,8 @@ describe('GameDetail', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Nebula Showdown')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Nebula Showdown' })).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Nebula Showdown' })).toBeInTheDocument();
       expect(screen.getByTestId('game-detail-status')).toHaveTextContent('Status: active');
       expect(screen.getByTestId('timeline-feed')).toHaveTextContent(
         'Timeline contract: contract-nebula-42',

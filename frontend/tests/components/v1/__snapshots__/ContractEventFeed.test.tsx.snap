@@ -28,6 +28,29 @@ exports[`ContractEventFeed - snapshot > matches stable header snapshot 1`] = `
   <div
     class="cef__header-right"
   >
+    <div
+      aria-label="Event density"
+      class="cef__density-toggle"
+      data-testid="contract-event-feed-density-toggle"
+      role="group"
+    >
+      <button
+        aria-pressed="true"
+        class="cef__density-button is-active"
+        data-testid="contract-event-feed-density-standard"
+        type="button"
+      >
+        Standard
+      </button>
+      <button
+        aria-pressed="false"
+        class="cef__density-button"
+        data-testid="contract-event-feed-density-compact"
+        type="button"
+      >
+        Compact
+      </button>
+    </div>
     <span
       aria-atomic="true"
       aria-live="polite"

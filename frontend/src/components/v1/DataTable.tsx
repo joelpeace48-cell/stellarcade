@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import type { SortDirection } from '@/types/pagination';
+import type { TableDensityPreference } from '@/services/global-state-store';
 import './DataTable.css';
 
 export type DataTableColumn<T> = {
@@ -17,6 +18,9 @@ export interface DataTableProps<T> {
   pageSize?: number;
   isLoading?: boolean;
   emptyMessage?: string;
+  density?: TableDensityPreference;
+  className?: string;
+  testId?: string;
   onSortChange?: (field: string, direction: SortDirection) => void;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (size: number) => void;
@@ -28,12 +32,15 @@ function toggleDirection(current: SortDirection): SortDirection {
   return current === 'asc' ? 'desc' : 'asc';
 }
 
-export function DataTable<T extends Record<string, unknown>>({
+export function DataTable<T extends object>({
   columns,
   data,
   pageSize = 10,
   isLoading = false,
   emptyMessage = 'No records found.',
+  density = 'standard',
+  className = '',
+  testId = 'data-table',
   onSortChange,
   onPageChange,
   onPageSizeChange,
@@ -114,7 +121,13 @@ export function DataTable<T extends Record<string, unknown>>({
   }
 
   return (
-    <div className="data-table" data-testid="data-table">
+    <div
+      className={['data-table', density === 'compact' ? 'data-table--compact' : '', className]
+        .filter(Boolean)
+        .join(' ')}
+      data-testid={testId}
+      data-density={density}
+    >
       <table>
         <thead>
           <tr>
@@ -139,7 +152,9 @@ export function DataTable<T extends Record<string, unknown>>({
             <tr key={rowIndex} data-testid={`data-table-row-${rowIndex}`}>
               {columns.map((column) => (
                 <td key={`${String(column.key)}-${rowIndex}`}>
-                  {column.render ? column.render(row) : String((row as Record<string, unknown>)[String(column.key)] ?? '')}
+                  {column.render
+                    ? column.render(row)
+                    : String((row as Record<string, unknown>)[String(column.key)] ?? '')}
                 </td>
               ))}
             </tr>

@@ -10,10 +10,50 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock("@/pages/GameLobby");
   vi.restoreAllMocks();
 });
 
 describe("App", () => {
+  it("provides a skip link that moves focus to the dashboard main region", async () => {
+    vi.doMock("@/pages/GameLobby", () => ({
+      __esModule: true,
+      default: () => <h1 id="games-heading">Mock Lobby Content</h1>,
+    }));
+
+    const { default: App } = await import("@/App");
+    render(<App />);
+
+    const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+    const main = screen.getByRole("main");
+
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+    expect(skipLink).toHaveClass("skip-link");
+    expect(main).toHaveAttribute("id", "main-content");
+    expect(main).toHaveAttribute("tabindex", "-1");
+
+    fireEvent.click(skipLink);
+
+    expect(main).toHaveFocus();
+  });
+
+  it("exposes one stable main landmark and named dashboard navigation landmarks", async () => {
+    vi.doMock("@/pages/GameLobby", () => ({
+      __esModule: true,
+      default: () => <h1 id="games-heading">Mock Lobby Content</h1>,
+    }));
+
+    const { default: App } = await import("@/App");
+    render(<App />);
+
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /primary dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /breadcrumb/i })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: /sidebar navigation/i })).not.toBeInTheDocument();
+  });
+
   it("lazy-loads the dev contract simulator panel in development", async () => {
     const { default: App } = await import("@/App");
     if (!import.meta.env.DEV) return;
@@ -195,5 +235,25 @@ describe("Drawer Framework (#475)", () => {
 
     const drawer = screen.getByTestId("drawer");
     expect(drawer.className).toContain("drawer--left");
+  });
+
+  it("traps focus within the drawer while it is open", async () => {
+    const { Drawer } = await import("@/App");
+    const onClose = vi.fn();
+    render(
+      <Drawer open={true} onClose={onClose} title="Trap">
+        <button type="button">Secondary action</button>
+      </Drawer>,
+    );
+
+    const closeBtn = screen.getByTestId("drawer-close");
+    const secondaryAction = screen.getByRole("button", { name: "Secondary action" });
+
+    closeBtn.focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(secondaryAction).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(closeBtn).toHaveFocus();
   });
 });

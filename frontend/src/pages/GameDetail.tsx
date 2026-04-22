@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import ContractEventFeed from '../components/v1/ContractEventFeed';
+import { SkeletonPreset } from '../components/v1/LoadingSkeletonSet';
 import { ApiClient } from '../services/typed-api-sdk';
 import type { Game } from '../types/api-client';
 
@@ -63,7 +64,12 @@ export const GameDetail: React.FC = () => {
   }, [game]);
 
   if (loading) {
-    return <div role="status" aria-live="polite">Loading game details...</div>;
+    return (
+      <div role="status" aria-live="polite" data-testid="game-detail-loading">
+        <p>Loading game details...</p>
+        <SkeletonPreset type="detail" />
+      </div>
+    );
   }
 
   if (error) {
@@ -85,9 +91,9 @@ export const GameDetail: React.FC = () => {
   const contractId = resolveContractId(game);
 
   return (
-    <section className="game-detail" aria-label="Game detail page" data-testid="game-detail-page">
+    <section className="game-detail" aria-labelledby="game-detail-heading" data-testid="game-detail-page">
       <header className="game-detail__summary">
-        <h2>{game.name}</h2>
+        <h1 id="game-detail-heading">{game.name}</h1>
         <p data-testid="game-detail-id">Game ID: {game.id}</p>
         <p data-testid="game-detail-status">Status: {statusLabel}</p>
         <p data-testid="game-detail-contract">Contract: {contractId}</p>

@@ -26,6 +26,9 @@ import {
   getRecentFilters,
   recordRecentFilter,
   clearRecentFilters,
+  getTableDensityPreference,
+  persistTableDensityPreference,
+  type TableDensityPreference,
 } from '../../services/global-state-store';
 import type { RecentFilterEntry } from '../../services/global-state-store';
 import type { ContractEvent } from '../../types/contracts/events';
@@ -137,6 +140,8 @@ export interface ContractEventFeedProps {
   showFilterPresets?: boolean;
   /** Show recent filter chip rail above the event list. Default true when persistFilters=true. */
   showRecentFilters?: boolean;
+  densityScope?: string;
+  showDensityToggle?: boolean;
 }
 
 type ConnectionStatus = 'connected' | 'disconnected' | 'reconnecting' | 'idle';
@@ -260,11 +265,14 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   presetScope,
   showFilterPresets = true,
   showRecentFilters,
+  densityScope,
+  showDensityToggle = true,
 }) => {
   // ── Filter persistence ─────────────────────────────────────────────────────
   // Stable scope key isolates persisted state so different feeds don't collide.
   const resolvedScope = feedScope ?? contractId;
   const resolvedPresetScope = presetScope ?? resolvedScope;
+  const resolvedDensityScope = densityScope ?? `events-${resolvedScope}`;
 
   // Internal active-filter state used when persistFilters=true.
   // Null means "not yet initialised" (restored from storage on first render).
@@ -300,6 +308,9 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
   const listRef = useRef<HTMLOListElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_LIST_HEIGHT_PX);
+  const [density, setDensity] = useState<TableDensityPreference>(() =>
+    getTableDensityPreference(resolvedDensityScope),
+  );
 
   // Restore persisted filter state on mount (or when scope changes).
   useEffect(() => {
@@ -312,6 +323,10 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     filterInitialisedRef.current = true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistFilters, resolvedScope]);
+
+  useEffect(() => {
+    setDensity(getTableDensityPreference(resolvedDensityScope));
+  }, [resolvedDensityScope]);
 
   useEffect(() => {
     setSavedPresets(getSavedFilterPresets(resolvedPresetScope));
@@ -556,6 +571,14 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
     setRecentFilters([]);
   }, [resolvedScope]);
 
+  const handleDensityChange = useCallback(
+    (nextDensity: TableDensityPreference) => {
+      setDensity(nextDensity);
+      persistTableDensityPreference(resolvedDensityScope, nextDensity);
+    },
+    [resolvedDensityScope],
+  );
+
   const totalPages =
     filteredEvents.length > 0 ? Math.ceil(filteredEvents.length / pageSize) : 0;
   const hasNextPage =
@@ -673,6 +696,7 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
 
   const rootClasses = [
     'cef',
+    density === 'compact' ? 'cef--compact' : '',
     isListening ? 'cef--listening' : 'cef--paused',
     className,
   ]
@@ -692,6 +716,34 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
         </div>
 
         <div className="cef__header-right">
+          {showDensityToggle && (
+            <div
+              className="cef__density-toggle"
+              role="group"
+              aria-label="Event density"
+              data-testid={`${testId}-density-toggle`}
+            >
+              <button
+                type="button"
+                className={`cef__density-button ${density === 'standard' ? 'is-active' : ''}`.trim()}
+                onClick={() => handleDensityChange('standard')}
+                aria-pressed={density === 'standard'}
+                data-testid={`${testId}-density-standard`}
+              >
+                Standard
+              </button>
+              <button
+                type="button"
+                className={`cef__density-button ${density === 'compact' ? 'is-active' : ''}`.trim()}
+                onClick={() => handleDensityChange('compact')}
+                aria-pressed={density === 'compact'}
+                data-testid={`${testId}-density-compact`}
+              >
+                Compact
+              </button>
+            </div>
+          )}
+
           <span className="cef__count" aria-live="polite" aria-atomic="true">
             {filteredEvents.length > 0
               ? `${filteredEvents.length} event${filteredEvents.length !== 1 ? 's' : ''}`
@@ -908,7 +960,7 @@ export const ContractEventFeed: React.FC<ContractEventFeedProps> = ({
                 key={event.id}
                 event={event}
                 onClick={onEventClick}
-                severity={getEventSeverity(event.type, severityMapping)}
+                severity={getEventSeverity(event.type ?? undefined, severityMapping)}
                 testId={testId}
               />
             ))}

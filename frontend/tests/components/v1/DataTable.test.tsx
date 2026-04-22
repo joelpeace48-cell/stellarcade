@@ -51,4 +51,12 @@ describe('DataTable', () => {
     fireEvent.change(screen.getByTestId('data-table-page-size'), { target: { value: '5' } });
     expect(screen.getByTestId('data-table-page-info')).toHaveTextContent('Page 1 of 1');
   });
+
+  it('applies compact density classes without breaking table rendering', () => {
+    render(<DataTable columns={columns} data={rows} density="compact" />);
+
+    expect(screen.getByTestId('data-table')).toHaveClass('data-table--compact');
+    expect(screen.getByTestId('data-table')).toHaveAttribute('data-density', 'compact');
+    expect(screen.getByTestId('data-table-row-0')).toHaveTextContent('A');
+  });
 });

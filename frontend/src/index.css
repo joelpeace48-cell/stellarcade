@@ -226,6 +226,15 @@ nav a.active {
   width: 100%;
 }
 
+.app-content:focus {
+  outline: none;
+}
+
+.app-content:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
 .hero {
   text-align: center;
   padding: 4rem 0;
@@ -319,7 +328,7 @@ nav a.active {
   text-align: left;
 }
 
-.lobby-header h2 {
+.lobby-header h1 {
   font-size: 2rem;
   margin: 0 0 0.5rem;
 }
@@ -327,6 +336,53 @@ nav a.active {
 .lobby-header p {
   color: var(--text-dim);
   margin: 0;
+}
+
+.dashboard-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 2rem 0 1rem;
+}
+
+.dashboard-section-heading h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.dashboard-section-heading p {
+  margin: 0.35rem 0 0;
+  color: var(--text-dim);
+}
+
+.density-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.density-toggle__button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.4rem 0.85rem;
+}
+
+.density-toggle__button.is-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-main);
+}
+
+.leaderboard-section {
+  margin-top: 2rem;
 }
 
 /* Two-column dashboard layout for wider screens */
@@ -681,6 +737,51 @@ nav a.active {
   flex: 1;
   overflow-y: auto;
   padding: 1.25rem;
+}
+
+.transaction-detail-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.transaction-detail-drawer__eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.transaction-detail-drawer__title {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.transaction-detail-drawer__meta {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+}
+
+.transaction-detail-drawer__meta div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.transaction-detail-drawer__meta dt {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.transaction-detail-drawer__meta dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.transaction-detail-drawer__empty {
+  color: var(--text-dim);
 }
 
 @media (max-width: 480px) {
@@ -1087,5 +1188,10 @@ nav a.active {
 @media (max-width: 600px) {
   .game-lobby {
     padding-bottom: 100px;
+  }
+
+  .dashboard-section-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

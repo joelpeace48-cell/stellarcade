@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useRef } from 'react';
+import React, { Suspense, lazy } from 'react';
 import GameLobby from './pages/GameLobby';
 import { RouteErrorBoundary } from './components/v1/RouteErrorBoundary';
 import ProfileSettings from './pages/ProfileSettings';
@@ -28,112 +28,7 @@ const toneLabelMap = {
   error: 'Error',
 } as const;
 
-/* ───────────────── Drawer Framework ───────────────── */
-
-export interface DrawerProps {
-  open: boolean;
-  onClose: () => void;
-  title?: string;
-  side?: 'left' | 'right';
-  children?: React.ReactNode;
-  testId?: string;
-}
-
-export const Drawer: React.FC<DrawerProps> = ({
-  open,
-  onClose,
-  title,
-  side = 'right',
-  children,
-  testId = 'drawer',
-}) => {
-  const drawerRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      previousFocusRef.current =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
-
-      requestAnimationFrame(() => {
-        const close = drawerRef.current?.querySelector<HTMLElement>('[data-drawer-close]');
-        close?.focus();
-      });
-    } else if (previousFocusRef.current) {
-      previousFocusRef.current.focus();
-      previousFocusRef.current = null;
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [open, onClose]);
-
-  useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [open]);
-
-  const handleBackdropClick = useCallback(() => {
-    onClose();
-  }, [onClose]);
-
-  const sideClass = side === 'left' ? ' drawer--left' : '';
-
-  return (
-    <>
-      <div
-        className={`drawer-backdrop${open ? ' drawer-backdrop--open' : ''}`}
-        onClick={handleBackdropClick}
-        data-testid={`${testId}-backdrop`}
-        aria-hidden="true"
-      />
-      <div
-        ref={drawerRef}
-        className={`drawer${sideClass}${open ? ' drawer--open' : ''}`}
-        role="dialog"
-        aria-modal={open}
-        aria-label={title ?? 'Drawer'}
-        data-testid={testId}
-        {...(!open ? { inert: '' as unknown as string } : {})}
-      >
-        <div className="drawer__header">
-          {title && <h2 className="drawer__title">{title}</h2>}
-          <button
-            type="button"
-            className="drawer__close-btn"
-            onClick={onClose}
-            aria-label="Close drawer"
-            data-drawer-close=""
-            data-testid={`${testId}-close`}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="drawer__body" data-testid={`${testId}-body`}>
-          {children}
-        </div>
-      </div>
-    </>
-  );
-};
-
-Drawer.displayName = 'Drawer';
+const MAIN_CONTENT_ID = 'main-content';
 
 /* ───────────────── Notification Center ───────────────── */
 
@@ -253,27 +148,38 @@ const AppContent: React.FC = () => {
       <CommandPalette commands={commands} />
       <NotificationCenter />
 
-      <a href="#main-content" className="skip-link">
+      <a
+        href={`#${MAIN_CONTENT_ID}`}
+        className="skip-link"
+        onClick={(event) => {
+          const mainContent = document.getElementById(MAIN_CONTENT_ID);
+          if (!mainContent) return;
+
+          event.preventDefault();
+          mainContent.focus();
+          mainContent.scrollIntoView?.({ block: 'start' });
+        }}
+      >
         Skip to main content
       </a>
 
       <AppSidebar currentRoute={route} onNavigate={setRoute} />
 
       <div className="app-main-layout">
-        <header className="app-header" role="banner">
+        <header className="app-header">
           <div className="logo">{t('app.title')}</div>
           <LocaleSwitcher />
         </header>
 
         <Breadcrumbs />
 
-        <main className="app-content" id="main-content">
+        <main className="app-content" id={MAIN_CONTENT_ID} tabIndex={-1}>
           <RouteErrorBoundary>
             {route === 'profile' ? <ProfileSettings /> : <GameLobby />}
           </RouteErrorBoundary>
         </main>
 
-        <footer className="app-footer" role="contentinfo">
+        <footer className="app-footer">
           <div className="footer-content">
             <p>{t('footer.copyright')}</p>
 
@@ -310,4 +216,7 @@ const App: React.FC = () => {
   );
 };
 
+export { Drawer } from './components/v1/Drawer';
+
 export default App;
+

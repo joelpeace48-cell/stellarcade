@@ -5,9 +5,17 @@ import StatusCard from '../components/v1/StatusCard';
 import NetworkGuardBanner from '../components/v1/NetworkGuardBanner';
 import WalletStatusCard from '../components/v1/WalletStatusCard';
 import PrizePoolStateCard from '../components/v1/PrizePoolStateCard';
+import { DataTable, type DataTableColumn } from '../components/v1/DataTable';
+import { SkeletonPreset } from '../components/v1/LoadingSkeletonSet';
+import TransactionDetailDrawer from '../components/v1/TransactionDetailDrawer';
 import { isSupportedNetwork } from '../utils/v1/useNetworkGuard';
 import { useWalletStatus } from '../hooks/v1/useWalletStatus';
-import GlobalStateStore, { ONBOARDING_CHECKLIST_DISMISSED_FLAG } from '../services/global-state-store';
+import GlobalStateStore, {
+  ONBOARDING_CHECKLIST_DISMISSED_FLAG,
+  getTableDensityPreference,
+  persistTableDensityPreference,
+  type TableDensityPreference,
+} from '../services/global-state-store';
 import type { PendingTransactionSnapshot } from '../types/global-state';
 
 // ─── Onboarding Checklist ────────────────────────────────────────────────────
@@ -17,6 +25,16 @@ const CHECKLIST_ITEMS = [
   { id: 'browse-games', label: 'Browse available games' },
   { id: 'place-wager', label: 'Place your first wager' },
 ] as const;
+
+const DASHBOARD_DENSITY_SCOPE = 'dashboard-surfaces';
+
+interface LeaderboardRow {
+  rank: number;
+  id: string;
+  name: string;
+  status: string;
+  wager: number;
+}
 
 interface FirstTimeChecklistProps {
   onDismiss: () => void;
@@ -92,6 +110,10 @@ export const GameLobby: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [networkCheckPending, setNetworkCheckPending] = useState(false);
   const [pendingTransaction, setPendingTransaction] = useState<PendingTransactionSnapshot | null>(null);
+  const [isTransactionDrawerOpen, setIsTransactionDrawerOpen] = useState(false);
+  const [tableDensity, setTableDensity] = useState<TableDensityPreference>(() =>
+    getTableDensityPreference(DASHBOARD_DENSITY_SCOPE),
+  );
   const wallet = useWalletStatus();
   const globalStoreRef = useRef<GlobalStateStore | null>(null);
 
@@ -161,6 +183,41 @@ export const GameLobby: React.FC = () => {
     [games],
   );
 
+  const leaderboardRows = useMemo<LeaderboardRow[]>(
+    () =>
+      [...activeGames]
+        .sort((left, right) => {
+          const leftWager = typeof left.wager === 'number' ? left.wager : Number(left.wager ?? 0);
+          const rightWager = typeof right.wager === 'number' ? right.wager : Number(right.wager ?? 0);
+          return rightWager - leftWager;
+        })
+        .map((game, index) => ({
+          rank: index + 1,
+          id: game.id,
+          name: game.name,
+          status: String(game.status ?? 'unknown'),
+          wager: typeof game.wager === 'number' ? game.wager : Number(game.wager ?? 0),
+        })),
+    [activeGames],
+  );
+
+  const leaderboardColumns = useMemo<DataTableColumn<LeaderboardRow>[]>(
+    () => [
+      { key: 'rank', header: 'Rank', sortable: true, width: '5rem' },
+      { key: 'name', header: 'Game', sortable: true },
+      { key: 'status', header: 'Status', sortable: true, width: '8rem' },
+      {
+        key: 'wager',
+        header: 'Wager',
+        sortable: true,
+        width: '8rem',
+        render: (row) => `${row.wager.toFixed(0)} XLM`,
+        sortAccessor: (row) => row.wager,
+      },
+    ],
+    [],
+  );
+
   const totalPrizeSignal = useMemo(
     () =>
       activeGames.reduce((sum, game) => {
@@ -182,7 +239,19 @@ export const GameLobby: React.FC = () => {
     [activeGames.length, totalPrizeSignal],
   );
 
-  if (loading) return <div className="lobby-loading" role="status" aria-live="polite">Loading elite games...</div>;
+  const handleDensityChange = useCallback((density: TableDensityPreference) => {
+    setTableDensity(density);
+    persistTableDensityPreference(DASHBOARD_DENSITY_SCOPE, density);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="lobby-loading" role="status" aria-live="polite">
+        <p>Loading elite games...</p>
+        <SkeletonPreset type="detail" />
+      </div>
+    );
+  }
   if (error) return <div className="lobby-error" role="status" aria-live="polite">Failed to load games: {error}</div>;
 
   return (
@@ -223,7 +292,7 @@ export const GameLobby: React.FC = () => {
 
         <div className="lobby-dashboard__col">
           <div className="lobby-header">
-            <h2 id="games-heading">Live Arena</h2>
+            <h1 id="games-heading">Live Arena</h1>
             <p>Real-time game status across the Stellar ecosystem.</p>
           </div>
           <div className="lobby-kpi-strip" data-testid="lobby-kpi-strip">
@@ -253,6 +322,22 @@ export const GameLobby: React.FC = () => {
               status={pendingTransaction ? pendingTransaction.phase : 'idle'}
               tone={pendingTransaction ? 'warning' : 'neutral'}
               hideDefaultAction={true}
+              footerSlot={
+                <button
+                  type="button"
+                  className="btn-play"
+                  onClick={() => setIsTransactionDrawerOpen(true)}
+                  disabled={!pendingTransaction}
+                  aria-label={
+                    pendingTransaction
+                      ? 'Open transaction details'
+                      : 'Transaction details unavailable'
+                  }
+                  data-testid="transaction-detail-trigger"
+                >
+                  {pendingTransaction ? 'Inspect tx' : 'Awaiting tx'}
+                </button>
+              }
               bodySlot={
                 <div className="status-card__metric-group">
                   <div className="status-card__metric-value">{formatPendingTxLabel(pendingTransaction)}</div>
@@ -305,6 +390,51 @@ export const GameLobby: React.FC = () => {
           </div>
         )}
       </section>
+
+      <section aria-labelledby="leaderboard-heading" className="leaderboard-section">
+        <div className="dashboard-section-heading">
+          <div>
+            <h2 id="leaderboard-heading">Active Games Leaderboard</h2>
+            <p>Switch between standard and compact density to scan live tables faster.</p>
+          </div>
+          <div className="density-toggle" role="group" aria-label="Table density">
+            <button
+              type="button"
+              className={`density-toggle__button ${tableDensity === 'standard' ? 'is-active' : ''}`.trim()}
+              onClick={() => handleDensityChange('standard')}
+              aria-pressed={tableDensity === 'standard'}
+              data-testid="leaderboard-density-standard"
+            >
+              Standard
+            </button>
+            <button
+              type="button"
+              className={`density-toggle__button ${tableDensity === 'compact' ? 'is-active' : ''}`.trim()}
+              onClick={() => handleDensityChange('compact')}
+              aria-pressed={tableDensity === 'compact'}
+              data-testid="leaderboard-density-compact"
+            >
+              Compact
+            </button>
+          </div>
+        </div>
+
+        <DataTable
+          columns={leaderboardColumns}
+          data={leaderboardRows}
+          pageSize={5}
+          density={tableDensity}
+          emptyMessage="No leaderboard data available yet."
+          testId="leaderboard-table"
+        />
+      </section>
+
+      <TransactionDetailDrawer
+        open={isTransactionDrawerOpen}
+        onClose={() => setIsTransactionDrawerOpen(false)}
+        pendingTransaction={pendingTransaction}
+        network={wallet.network}
+      />
     </div>
   );
 };

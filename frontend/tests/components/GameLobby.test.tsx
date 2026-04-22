@@ -47,8 +47,8 @@ test('renders GameLobby and fetches games', async () => {
   expect(screen.getByText(/Loading elite games.../i)).toBeDefined();
   
   await waitFor(() => {
-    expect(screen.getByText(/Elite Clash/i)).toBeDefined();
-    expect(screen.getByText(/50 XLM/i)).toBeDefined();
+    expect(screen.getAllByText(/Elite Clash/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/50 XLM/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/#12345678/i)).toBeDefined();
   });
 });
@@ -136,7 +136,7 @@ describe('GameLobby two-column layout', () => {
     await waitFor(() => {
       expect(screen.getByTestId('lobby-kpi-strip')).toBeInTheDocument();
       expect(screen.getByText(/No wallet connected/i)).toBeInTheDocument();
-      expect(screen.getByText(/SUBMITTING/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/SUBMITTING/i).length).toBeGreaterThan(0);
       expect(screen.getByTestId('lobby-prize-pool-kpi-balance')).toHaveTextContent('35.00');
     });
   });
@@ -274,6 +274,7 @@ describe('GameLobby accessibility landmarks', () => {
     expect(loadingEl).toBeTruthy();
     expect(loadingEl?.getAttribute('role')).toBe('status');
     expect(loadingEl?.getAttribute('aria-live')).toBe('polite');
+    expect(screen.getByTestId('skeleton-preset-detail')).toBeInTheDocument();
   });
 
   it('renders error state with role="status" and aria-live', async () => {
@@ -307,6 +308,19 @@ describe('GameLobby accessibility landmarks', () => {
       expect(dashboard?.getAttribute('aria-label')).toBe(
         'Wallet and network status',
       );
+    });
+  });
+
+  it('exposes the lobby page title as the top-level heading', async () => {
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: 'Live Arena' })).toBeInTheDocument();
     });
   });
 
@@ -362,5 +376,58 @@ describe('GameLobby accessibility landmarks', () => {
       expect(emptyEl?.getAttribute('role')).toBe('status');
       expect(emptyEl?.getAttribute('aria-live')).toBe('polite');
     });
+  });
+
+  it('opens a transaction detail slide-over from the summary card', async () => {
+    localStorage.setItem(
+      'stc_global_state_v1',
+      JSON.stringify({
+        auth: { isAuthenticated: false },
+        flags: {},
+        pendingTransaction: {
+          operation: 'wallet.deposit',
+          phase: 'SUBMITTING',
+          txHash: 'abc1234567890',
+          startedAt: 1_700_000_000_000,
+          updatedAt: 1_700_000_000_500,
+        },
+        storedAt: Date.now(),
+      }),
+    );
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [{ id: 'g1', name: 'Game One', status: 'active', wager: 25 }],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transaction-detail-trigger')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('transaction-detail-trigger'));
+
+    expect(screen.getByTestId('transaction-detail-drawer')).toBeInTheDocument();
+    expect(screen.getByText(/wallet deposit/i)).toBeInTheDocument();
+    expect(screen.getByText(/abc1234567890/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('transaction-detail-drawer-close'));
+    expect(screen.getByTestId('transaction-detail-drawer')).not.toHaveClass('drawer--open');
+  });
+
+  it('restores compact leaderboard density from persisted preference', async () => {
+    localStorage.setItem('stc_table_density_v1_dashboard-surfaces', 'compact');
+    (ApiClient as any).prototype.getGames.mockResolvedValue({
+      success: true,
+      data: [{ id: 'g1', name: 'Game One', status: 'active', wager: 25 }],
+    });
+
+    render(<GameLobby />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('leaderboard-table')).toHaveClass('data-table--compact');
+    });
+
+    expect(screen.getByTestId('leaderboard-density-compact')).toHaveAttribute('aria-pressed', 'true');
   });
 });

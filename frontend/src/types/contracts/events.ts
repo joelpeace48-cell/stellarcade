@@ -1,7 +1,7 @@
 export interface ContractEvent<T = any> {
     id: string;
-    contractId: string;
-    type: string;
+    contractId?: string | null;
+    type?: string | null;
     timestamp: string;
     data: T;
 }

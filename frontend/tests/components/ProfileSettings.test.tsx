@@ -57,6 +57,28 @@ describe('ProfileSettings page', () => {
     });
   });
 
+  it('exposes profile settings as a labelled page section with a top-level heading', async () => {
+    mockGetProfile.mockResolvedValueOnce({
+      success: true,
+      data: {
+        address: 'GABC123',
+        username: 'alice',
+        createdAt: '2025-01-01T12:00:00Z',
+      },
+    });
+
+    render(<ProfileSettings />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Profile Settings' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('region', { name: 'Profile Settings' }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('saves successfully with optimism and shows success state', async () => {
     mockGetProfile.mockResolvedValueOnce({
       success: true,
