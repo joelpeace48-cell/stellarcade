@@ -122,6 +122,7 @@ export const GameLobby: React.FC = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [networkCheckPending, setNetworkCheckPending] = useState(false);
   const [pendingTransaction, setPendingTransaction] =
     useState<PendingTransactionSnapshot | null>(null);
@@ -198,21 +199,59 @@ export const GameLobby: React.FC = () => {
     ],
   );
 
-  useEffect(() => {
-    const fetchGames = async () => {
-      const client = new ApiClient();
-      const result = await client.getGames();
+  const fetchGames = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) {
+      return false;
+    }
+    const client = new ApiClient();
+    const result = await client.getGames({ signal });
 
-      if (result.success) {
-        setGames(result.data);
-      } else {
-        setError(result.error.message);
-      }
-      setLoading(false);
-    };
+    if (signal?.aborted) {
+      return false;
+    }
 
-    fetchGames();
+    if (result.success) {
+      setGames(result.data);
+      setError(null);
+      return true;
+    }
+
+    // Ignore abort errors (triggered by unmount / navigation).
+    if (result.error.code === "API_ABORTED") {
+      return false;
+    }
+
+    setError(result.error.message);
+    return false;
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        await fetchGames(controller.signal);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+    run();
+
+    return () => {
+      controller.abort();
+    };
+  }, [fetchGames]);
+
+  const handleRetryLoadGames = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await fetchGames();
+    } finally {
+      setRetrying(false);
+    }
+  }, [fetchGames, retrying]);
 
   useEffect(() => {
     const store = globalStoreRef.current!;
@@ -324,7 +363,18 @@ export const GameLobby: React.FC = () => {
   if (error)
     return (
       <div className="lobby-error" role="status" aria-live="polite">
-        Failed to load games: {error}
+        <p>Failed to load games: {error}</p>
+        <div style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleRetryLoadGames}
+            disabled={retrying}
+            data-testid="lobby-error-retry"
+          >
+            {retrying ? "Retrying..." : "Retry"}
+          </button>
+        </div>
       </div>
     );
 
