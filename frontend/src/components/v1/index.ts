@@ -10,6 +10,15 @@
  */
 
 export {
+  AccountSwitcher,
+  default as AccountSwitcherDefault,
+} from "./AccountSwitcher";
+export type {
+  AccountSwitcherProps,
+  RecentAccount,
+} from "./AccountSwitcher.types";
+
+export {
   EmptyStateBlock,
   default as EmptyStateBlockDefault,
 } from "./EmptyStateBlock";

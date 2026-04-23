@@ -3,6 +3,8 @@ resolver = "2"
 
 members = [
     "access-control",
+    "anti-cheat-bounties",
+    "creator-royalties",
     "achievement-badge",
     "ai-generated-game",
     "balance-management",
@@ -57,6 +59,7 @@ members = [
     "speed-trivia",
     "jackpot-pool",
     "staking",
+    "ticket-market",
     "staking-rewards",
     "streak-bonus",
     "tournament-system",

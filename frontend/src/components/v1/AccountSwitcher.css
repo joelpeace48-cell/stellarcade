@@ -1,0 +1,232 @@
+/* AccountSwitcher — BEM: .account-switcher__[element]--[modifier] */
+
+.account-switcher {
+  position: relative;
+  display: inline-block;
+  font-family: inherit;
+}
+
+/* ── Trigger button ─────────────────────────────────────────────────────────── */
+
+.account-switcher__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1a202c;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+.account-switcher__trigger:hover:not(:disabled) {
+  background: #f7fafc;
+  border-color: #cbd5e0;
+}
+
+.account-switcher__trigger:focus-visible {
+  outline: 2px solid #4299e1;
+  outline-offset: 2px;
+}
+
+.account-switcher__trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.account-switcher__trigger--disconnected {
+  color: #718096;
+  border-style: dashed;
+}
+
+.account-switcher__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-switcher__chevron {
+  flex-shrink: 0;
+  transition: transform 200ms ease;
+  color: #a0aec0;
+}
+
+.account-switcher__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* ── Dropdown menu ──────────────────────────────────────────────────────────── */
+
+.account-switcher__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 280px;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  padding: 0.25rem 0;
+  outline: none;
+}
+
+.account-switcher__section-label {
+  padding: 0.375rem 0.875rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #a0aec0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Account items ──────────────────────────────────────────────────────────── */
+
+.account-switcher__item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: #2d3748;
+  transition: background 80ms ease;
+}
+
+.account-switcher__item:hover:not(:disabled) {
+  background: #f7fafc;
+}
+
+.account-switcher__item:focus-visible {
+  outline: none;
+  background: #ebf8ff;
+}
+
+.account-switcher__item--active {
+  background: #ebf8ff;
+  color: #2b6cb0;
+  font-weight: 500;
+}
+
+.account-switcher__item--active:hover {
+  background: #bee3f8;
+}
+
+.account-switcher__item-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #4a5568;
+  flex-shrink: 0;
+}
+
+.account-switcher__item-avatar--active {
+  background: #bee3f8;
+  color: #2b6cb0;
+}
+
+.account-switcher__item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-switcher__item-label {
+  display: block;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-switcher__item-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: #718096;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-switcher__item-check {
+  flex-shrink: 0;
+  color: #3182ce;
+}
+
+/* ── Divider ────────────────────────────────────────────────────────────────── */
+
+.account-switcher__divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 0.25rem 0;
+  border: none;
+}
+
+/* ── Action items (connect new / disconnect) ────────────────────────────────── */
+
+.account-switcher__action {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: #4a5568;
+  transition: background 80ms ease;
+}
+
+.account-switcher__action:hover {
+  background: #f7fafc;
+}
+
+.account-switcher__action:focus-visible {
+  outline: none;
+  background: #ebf8ff;
+}
+
+.account-switcher__action--danger {
+  color: #c53030;
+}
+
+.account-switcher__action--danger:hover {
+  background: #fff5f5;
+}
+
+.account-switcher__action-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────────── */
+
+.account-switcher__empty {
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8rem;
+  color: #a0aec0;
+  text-align: center;
+}

@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiClient } from '@/services/typed-api-sdk';
 import { SkeletonPreset } from '@/components/v1/LoadingSkeletonSet';
+import { AccountSwitcher } from '@/components/v1/AccountSwitcher';
 import GlobalStateStore from '@/services/global-state-store';
 import { useWalletStatus } from '@/hooks/v1/useWalletStatus';
+import type { RecentAccount } from '@/components/v1/AccountSwitcher.types';
 import type { UserProfile } from '@/types/api-client';
 
 export const profileStore = new GlobalStateStore();
@@ -88,6 +90,11 @@ const ProfileSettings: React.FC = () => {
         : 'Never',
     };
   }, [walletStatus]);
+
+  const handleSelectAccount = useCallback((_account: RecentAccount) => {
+    // Parent would reconnect wallet using the selected account address.
+    // Actual wallet re-connection is delegated to the wallet provider layer.
+  }, []);
 
   const handleSave = async () => {
     setError(null);
@@ -202,13 +209,21 @@ const ProfileSettings: React.FC = () => {
       </form>
 
       <div className="wallet-metadata" data-testid="profile-settings-wallet-meta">
-        <h3>Wallet Metadata</h3>
+        <h3>Wallet</h3>
+        <div style={{ marginBottom: '1rem' }}>
+          <AccountSwitcher
+            currentAddress={walletStatus.address}
+            currentNetwork={walletStatus.network}
+            currentProvider={walletStatus.provider?.name}
+            onSelectAccount={handleSelectAccount}
+            onDisconnect={walletStatus.capabilities.isConnected ? walletStatus.disconnect : undefined}
+            onConnectNew={() => void walletStatus.connect()}
+            testId="profile-account-switcher"
+          />
+        </div>
         <dl>
           <dt>Connected</dt>
           <dd>{String(walletMeta.connected)}</dd>
-
-          <dt>Address</dt>
-          <dd>{walletMeta.address}</dd>
 
           <dt>Network</dt>
           <dd>{walletMeta.network}</dd>
@@ -225,3 +240,4 @@ const ProfileSettings: React.FC = () => {
 };
 
 export default ProfileSettings;
+ngs;
