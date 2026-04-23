@@ -14,6 +14,7 @@ import PrizePoolStateCard from "../components/v1/PrizePoolStateCard";
 import { DataTable, type DataTableColumn } from "../components/v1/DataTable";
 import { SkeletonPreset } from "../components/v1/LoadingSkeletonSet";
 import TransactionDetailDrawer from "../components/v1/TransactionDetailDrawer";
+import SectionHeader from "../components/v1/SectionHeader";
 import { isSupportedNetwork } from "../utils/v1/useNetworkGuard";
 import { useWalletStatus } from "../hooks/v1/useWalletStatus";
 import GlobalStateStore, {
@@ -513,39 +514,37 @@ export const GameLobby: React.FC = () => {
         aria-labelledby="leaderboard-heading"
         className="leaderboard-section"
       >
-        <div className="dashboard-section-heading">
-          <div>
-            <h2 id="leaderboard-heading">Active Games Leaderboard</h2>
-            <p>
-              Switch between standard and compact density to scan live tables
-              faster.
-            </p>
-          </div>
-          <div
-            className="density-toggle"
-            role="group"
-            aria-label="Table density"
-          >
-            <button
-              type="button"
-              className={`density-toggle__button ${tableDensity === "standard" ? "is-active" : ""}`.trim()}
-              onClick={() => handleDensityChange("standard")}
-              aria-pressed={tableDensity === "standard"}
-              data-testid="leaderboard-density-standard"
+        <SectionHeader
+          titleId="leaderboard-heading"
+          title="Active Games Leaderboard"
+          description="Switch between standard and compact density to scan live tables faster."
+          actions={
+            <div
+              className="density-toggle"
+              role="group"
+              aria-label="Table density"
             >
-              Standard
-            </button>
-            <button
-              type="button"
-              className={`density-toggle__button ${tableDensity === "compact" ? "is-active" : ""}`.trim()}
-              onClick={() => handleDensityChange("compact")}
-              aria-pressed={tableDensity === "compact"}
-              data-testid="leaderboard-density-compact"
-            >
-              Compact
-            </button>
-          </div>
-        </div>
+              <button
+                type="button"
+                className={`density-toggle__button ${tableDensity === "standard" ? "is-active" : ""}`.trim()}
+                onClick={() => handleDensityChange("standard")}
+                aria-pressed={tableDensity === "standard"}
+                data-testid="leaderboard-density-standard"
+              >
+                Standard
+              </button>
+              <button
+                type="button"
+                className={`density-toggle__button ${tableDensity === "compact" ? "is-active" : ""}`.trim()}
+                onClick={() => handleDensityChange("compact")}
+                aria-pressed={tableDensity === "compact"}
+                data-testid="leaderboard-density-compact"
+              >
+                Compact
+              </button>
+            </div>
+          }
+        />
 
         <DataTable
           columns={leaderboardColumns}

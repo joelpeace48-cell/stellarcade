@@ -99,19 +99,6 @@ describe('FilterPresetBar', () => {
 
     expect(scoped.queryByText('To Delete')).toBeNull();
     expect(within(root).getByTestId('filter-preset-bar-empty')).toBeTruthy();
-    const row = screen.getByText('To Delete').closest('li');
-    expect(row).toBeTruthy();
-    const deleteBtn = within(row as HTMLElement).getByRole('button', {
-      name: /delete preset/i,
-    });
-    fireEvent.click(deleteBtn);
-
-    expect(screen.queryByText('To Delete')).toBeNull();
-    // If that was the last preset, we should fall back to the empty state.
-    // Otherwise, the list remains visible with remaining presets.
-    const empty = screen.queryByTestId('filter-preset-bar-empty');
-    const list = screen.queryByTestId('filter-preset-bar-list');
-    expect(Boolean(empty) || Boolean(list)).toBe(true);
   });
 
   it('Enter key saves the preset', () => {
