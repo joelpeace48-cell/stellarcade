@@ -20,6 +20,8 @@ import { WalletStatusCard } from "../../../src/components/v1/WalletStatusCard";
 import type { WalletStatusCardProps } from "../../../src/components/v1/WalletStatusCard.types";
 import type { WalletStatus } from "../../../src/components/v1/WalletStatusCard.types";
 
+const WALLET_SESSION_HISTORY_KEY = "stc_wallet_session_history_v1";
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function connectedCapabilities() {
@@ -56,6 +58,10 @@ function renderCard(props: Partial<WalletStatusCardProps> = {}) {
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe("WalletStatusCard", () => {
+  beforeEach(() => {
+    localStorage.removeItem(WALLET_SESSION_HISTORY_KEY);
+  });
+
   // ── Loading / skeleton state ─────────────────────────────────────────────────
   describe("Loading state", () => {
     it("renders skeleton when isLoading is true", () => {
@@ -637,6 +643,62 @@ describe("WalletStatusCard", () => {
       const spinner = screen.getByTestId("wallet-refresh-spinner");
       expect(spinner).toHaveAttribute("role", "status");
       expect(spinner).toHaveAttribute("aria-label", "Refreshing balance");
+    });
+  });
+
+  // ── Wallet session activity rail (#542) ──────────────────────────────────────
+  describe("Wallet session activity rail", () => {
+    it("renders a recent-activity rail and summary when session history exists", () => {
+      const now = Date.now();
+      localStorage.setItem(
+        WALLET_SESSION_HISTORY_KEY,
+        JSON.stringify([
+          {
+            id: "1",
+            type: "connected",
+            occurredAt: now,
+            network: "testnet",
+            providerName: "Freighter",
+            addressPreview: "GABC...WXYZ",
+          },
+          {
+            id: "2",
+            type: "disconnected",
+            occurredAt: now - 10_000,
+            network: "testnet",
+            providerName: "Freighter",
+            addressPreview: "GABC...WXYZ",
+          },
+          {
+            id: "3",
+            type: "reconnected",
+            occurredAt: now - 20_000,
+            network: "testnet",
+            providerName: "Freighter",
+            addressPreview: "GABC...WXYZ",
+          },
+        ]),
+      );
+
+      renderCard({ status: "CONNECTED" });
+
+      expect(
+        screen.getByTestId("wallet-session-activity-rail"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("wallet-session-summary")).toHaveTextContent(
+        /Last:\s*Connected/i,
+      );
+
+      expect(
+        screen.getByTestId("wallet-session-activity-chip-connected"),
+      ).toBeInTheDocument();
+    });
+
+    it("does not render activity rail when there is no session history", () => {
+      renderCard({ status: "DISCONNECTED" });
+      expect(
+        screen.queryByTestId("wallet-session-activity-rail"),
+      ).not.toBeInTheDocument();
     });
   });
 

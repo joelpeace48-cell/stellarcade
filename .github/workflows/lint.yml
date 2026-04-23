@@ -19,16 +19,17 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.85.0
         with:
+          toolchain: 1.85.0
           components: clippy
       - name: Run Clippy
         run: |
-          cd contracts/shared && cargo clippy -- -D warnings
-          cd ../prize-pool && cargo clippy -- -D warnings
-          cd ../random-generator && cargo clippy -- -D warnings
-          cd ../coin-flip && cargo clippy -- -D warnings
-          cd ../multiplayer-room && cargo clippy -- -D warnings
-          cd ../pattern-puzzle && cargo clippy -- -D warnings
-          cd ../emergency-pause && cargo clippy -- -D warnings
-          cd ../governance && cargo clippy -- -D warnings
+          cd contracts/shared && cargo clippy --locked -- -D warnings
+          cd ../prize-pool && cargo clippy --locked -- -D warnings
+          cd ../random-generator && cargo clippy --locked -- -D warnings
+          cd ../coin-flip && cargo clippy --locked -- -D warnings
+          cd ../multiplayer-room && cargo clippy --locked -- -D warnings
+          cd ../pattern-puzzle && cargo clippy --locked -- -D warnings
+          cd ../emergency-pause && cargo clippy --locked -- -D warnings
+          cd ../governance && cargo clippy --locked -- -D warnings

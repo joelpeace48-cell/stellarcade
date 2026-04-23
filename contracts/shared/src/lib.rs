@@ -10,7 +10,7 @@ use soroban_sdk::{contracterror, contracttype, Address};
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
-pub enum Error {
+pub enum SharedError {
     NotAuthorized = 1,
     InsufficientBalance = 2,
     InvalidAmount = 3,
@@ -112,17 +112,17 @@ pub enum DataKey {
 pub const BASIS_POINTS_DIVISOR: u32 = 10_000;
 
 
-pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, Error> {
+pub fn calculate_fee(amount: i128, fee_bps: u32) -> Result<i128, SharedError> {
     if amount < 0 {
-        return Err(Error::InvalidAmount);
+        return Err(SharedError::InvalidAmount);
     }
     if fee_bps > BASIS_POINTS_DIVISOR {
-        return Err(Error::InvalidAmount);
+        return Err(SharedError::InvalidAmount);
     }
     amount
         .checked_mul(fee_bps as i128)
         .and_then(|v| v.checked_div(BASIS_POINTS_DIVISOR as i128))
-        .ok_or(Error::Overflow)
+        .ok_or(SharedError::Overflow)
 }
 
 // ─── Event Topic Helpers ─────────────────────────────────────────────────────

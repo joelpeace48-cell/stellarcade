@@ -240,4 +240,3 @@ const ProfileSettings: React.FC = () => {
 };
 
 export default ProfileSettings;
-ngs;

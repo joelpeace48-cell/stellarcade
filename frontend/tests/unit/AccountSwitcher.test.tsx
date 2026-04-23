@@ -2,13 +2,14 @@
  * @vitest-environment happy-dom
  */
 
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mock account-memory-service ──────────────────────────────────────────────
 
-const mockGetRecentAccounts = vi.fn(() => []);
+import type { RecentAccount } from '@/components/v1/AccountSwitcher.types';
+
+const mockGetRecentAccounts = vi.fn((): RecentAccount[] => []);
 const mockRecordAccountUsage = vi.fn();
 const mockRemoveAccount = vi.fn();
 
@@ -20,9 +21,7 @@ vi.mock('@/services/account-memory-service', () => ({
 }));
 
 // Import component after mocks are in place
-const { AccountSwitcher } = await import(
-  '@/components/v1/AccountSwitcher'
-);
+import { AccountSwitcher } from '@/components/v1/AccountSwitcher';
 
 const ADDR_A = 'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37';
 const ADDR_B = 'GCZ6Q4P4JSGZJGJBBXJ3UVBSKJB3HNVVUOHB2JGLQKRGXPGMV7OMEFP';
@@ -262,6 +261,4 @@ describe('AccountSwitcher — accessibility', () => {
     fireEvent.click(screen.getByTestId('account-switcher-trigger'));
     expect(screen.getByRole('menu')).toBeInTheDocument();
   });
-});
-
 });

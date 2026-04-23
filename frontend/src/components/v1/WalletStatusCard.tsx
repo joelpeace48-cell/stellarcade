@@ -74,6 +74,35 @@ function getSessionEventLabel(type: WalletSessionHistoryEntry["type"]): string {
   }
 }
 
+function getSessionEventTone(
+  type: WalletSessionHistoryEntry["type"],
+): "success" | "warning" | "error" | "neutral" {
+  switch (type) {
+    case "connected":
+    case "reconnected":
+      return "success";
+    case "expired":
+      return "warning";
+    case "disconnected":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
+
+function summarizeSessionHistory(entries: WalletSessionHistoryEntry[]): {
+  lastLabel: string | null;
+  counts: Record<string, number>;
+} {
+  const counts: Record<string, number> = {};
+  for (const entry of entries) {
+    const key = entry.type;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const lastLabel = entries.length > 0 ? getSessionEventLabel(entries[0].type) : null;
+  return { lastLabel, counts };
+}
+
 /**
  * Sanitizes a string by stripping HTML tags.
  * Guards against prop-injected markup.
@@ -503,6 +532,14 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
         : `${sessionHistory.length} recent sessions`,
     [sessionHistory.length],
   );
+  const historySummary = useMemo(
+    () => summarizeSessionHistory(sessionHistory),
+    [sessionHistory],
+  );
+  const activityRailItems = useMemo(
+    () => sessionHistory.slice(0, 4),
+    [sessionHistory],
+  );
 
   // ── Render ───────────────────────────────────────────────────────────────────
   const containerClass = ["wallet-status-card", className]
@@ -651,6 +688,75 @@ export const WalletStatusCard: React.FC<WalletStatusCardProps> = ({
           className="wallet-status-card__history"
           data-testid="wallet-session-history"
         >
+          <div
+            className="wallet-status-card__activity"
+            aria-label="Recent wallet session activity"
+            data-testid="wallet-session-activity"
+          >
+            <ul
+              className="wallet-status-card__activity-rail"
+              role="list"
+              aria-label="Recent wallet actions"
+              data-testid="wallet-session-activity-rail"
+            >
+              {activityRailItems.map((entry) => {
+                const label = getSessionEventLabel(entry.type);
+                const tone = getSessionEventTone(entry.type);
+                return (
+                  <li
+                    key={entry.id}
+                    className={`wallet-status-card__activity-chip wallet-status-card__activity-chip--${tone}`}
+                    title={`${label} • ${formatSessionTime(entry.occurredAt)}`}
+                    aria-label={`${label} at ${formatSessionTime(entry.occurredAt)}`}
+                    data-testid={`wallet-session-activity-chip-${entry.type}`}
+                  >
+                    <span className="wallet-status-card__activity-chip-label">
+                      {label}
+                    </span>
+                    <span className="wallet-status-card__activity-chip-time">
+                      {new Date(entry.occurredAt).toLocaleTimeString(undefined, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div
+              className="wallet-status-card__activity-summary"
+              data-testid="wallet-session-summary"
+              role="status"
+              aria-live="polite"
+            >
+              {historySummary.lastLabel !== null ? (
+                <>
+                  <span className="wallet-status-card__activity-summary-strong">
+                    Last:
+                  </span>{" "}
+                  {historySummary.lastLabel}
+                  {Object.keys(historySummary.counts).length > 0 ? (
+                    <span className="wallet-status-card__activity-summary-muted">
+                      {" "}
+                      •{" "}
+                      {Object.entries(historySummary.counts)
+                        .map(([type, count]) => {
+                          const label = getSessionEventLabel(
+                            type as WalletSessionHistoryEntry["type"],
+                          ).toLowerCase();
+                          return `${count} ${label}`;
+                        })
+                        .join(" • ")}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                "No recent wallet actions"
+              )}
+            </div>
+          </div>
+
           <button
             className="wallet-status-card__history-toggle"
             type="button"

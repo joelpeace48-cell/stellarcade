@@ -1,6 +1,7 @@
 import React from 'react';
 import { PrizePoolState } from '../../types/contracts/prizePool';
 import { SkeletonBase } from './LoadingSkeletonSet';
+import { WidgetTransitionGuard } from './WidgetTransitionGuard';
 import './PrizePoolStateCard.css';
 
 export interface PrizePoolStateCardProps {
@@ -55,6 +56,14 @@ export const PrizePoolStateCard: React.FC<PrizePoolStateCardProps> = ({
         return isNaN(num) ? '0.00' : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
+    const footerStatusLabel =
+        statusLabel ??
+        (isLoading
+            ? 'Updating...'
+            : state
+                ? 'Live Data'
+                : 'Awaiting data');
+
     return (
         <div className={containerClasses} data-testid={testId}>
             <div className="prizepool-state-card__header">
@@ -74,48 +83,55 @@ export const PrizePoolStateCard: React.FC<PrizePoolStateCardProps> = ({
                 )}
             </div>
 
-            <div className="prizepool-state-card__metrics">
-                <div className="prizepool-state-card__metric">
-                    <span className="prizepool-state-card__metric-label">Total Balance</span>
-                    <div className="prizepool-state-card__metric-value">
-                        {isLoading && !state ? (
-                            <SkeletonBase width="100px" height="2rem" />
-                        ) : (
-                            <>
-                                <span data-testid={`${testId}-balance`}>{formatValue(state?.balance || '0')}</span>
-                                <span className="prizepool-state-card__currency">{currency}</span>
-                            </>
+            <WidgetTransitionGuard
+                populated={!!state}
+                testId={`${testId}-transition`}
+            >
+                <>
+                    <div className="prizepool-state-card__metrics">
+                        <div className="prizepool-state-card__metric">
+                            <span className="prizepool-state-card__metric-label">Total Balance</span>
+                            <div className="prizepool-state-card__metric-value">
+                                {isLoading && !state ? (
+                                    <SkeletonBase width="100px" height="2rem" />
+                                ) : (
+                                    <>
+                                        <span data-testid={`${testId}-balance`}>{formatValue(state?.balance || '0')}</span>
+                                        <span className="prizepool-state-card__currency">{currency}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {!compact && (
+                            <div className="prizepool-state-card__metric">
+                                <span className="prizepool-state-card__metric-label">Reserved Funds</span>
+                                <div className="prizepool-state-card__metric-value">
+                                    {isLoading && !state ? (
+                                        <SkeletonBase width="100px" height="2rem" />
+                                    ) : (
+                                        <>
+                                            <span data-testid={`${testId}-reserved`}>{formatValue(state?.totalReserved || '0')}</span>
+                                            <span className="prizepool-state-card__currency">{currency}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         )}
                     </div>
-                </div>
 
-                {!compact && (
-                    <div className="prizepool-state-card__metric">
-                        <span className="prizepool-state-card__metric-label">Reserved Funds</span>
-                        <div className="prizepool-state-card__metric-value">
-                            {isLoading && !state ? (
-                                <SkeletonBase width="100px" height="2rem" />
-                            ) : (
-                                <>
-                                    <span data-testid={`${testId}-reserved`}>{formatValue(state?.totalReserved || '0')}</span>
-                                    <span className="prizepool-state-card__currency">{currency}</span>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {!isLoading && !state && (
-                <p className="prizepool-state-card__empty" data-testid={`${testId}-empty`}>
-                    {emptyMessage}
-                </p>
-            )}
+                    {!isLoading && !state && (
+                        <p className="prizepool-state-card__empty" data-testid={`${testId}-empty`}>
+                            {emptyMessage}
+                        </p>
+                    )}
+                </>
+            </WidgetTransitionGuard>
 
             <div className="prizepool-state-card__footer">
                 <div className="prizepool-state-card__status">
                     <span className="prizepool-state-card__status-dot" />
-                    <span>{statusLabel ?? (isLoading ? 'Updating...' : 'Live Data')}</span>
+                    <span>{footerStatusLabel}</span>
                 </div>
                 {footerMeta ? (
                     <div className="prizepool-state-card__admin">{footerMeta}</div>
