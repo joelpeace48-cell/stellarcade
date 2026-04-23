@@ -29,6 +29,8 @@ const toneLabelMap = {
   error: 'Error',
 } as const;
 
+const MAIN_CONTENT_ID = 'main-content';
+
 /* ───────────────── Drawer Framework ───────────────── */
 
 export interface DrawerProps {
@@ -260,7 +262,18 @@ const AppContent: React.FC = () => {
       <CommandPalette commands={commands} />
       <NotificationCenter />
 
-      <a href="#main-content" className="skip-link">
+      <a
+        href={`#${MAIN_CONTENT_ID}`}
+        className="skip-link"
+        onClick={(event) => {
+          const mainContent = document.getElementById(MAIN_CONTENT_ID);
+          if (!mainContent) return;
+
+          event.preventDefault();
+          mainContent.focus();
+          mainContent.scrollIntoView?.({ block: 'start' });
+        }}
+      >
         Skip to main content
       </a>
 
@@ -274,7 +287,7 @@ const AppContent: React.FC = () => {
 
         <Breadcrumbs />
 
-        <main className="app-content" id="main-content">
+        <main className="app-content" id={MAIN_CONTENT_ID} tabIndex={-1}>
           <RouteErrorBoundary>
             {route === 'profile' ? (
               <ProfileSettings />
