@@ -199,9 +199,16 @@ export const GameLobby: React.FC = () => {
     ],
   );
 
-  const fetchGames = useCallback(async () => {
+  const fetchGames = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) {
+      return false;
+    }
     const client = new ApiClient();
-    const result = await client.getGames();
+    const result = await client.getGames({ signal });
+
+    if (signal?.aborted) {
+      return false;
+    }
 
     if (result.success) {
       setGames(result.data);
@@ -209,16 +216,31 @@ export const GameLobby: React.FC = () => {
       return true;
     }
 
+    // Ignore abort errors (triggered by unmount / navigation).
+    if (result.error.code === "API_ABORTED") {
+      return false;
+    }
+
     setError(result.error.message);
     return false;
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const run = async () => {
-      await fetchGames();
-      setLoading(false);
+      try {
+        await fetchGames(controller.signal);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
     };
     run();
+
+    return () => {
+      controller.abort();
+    };
   }, [fetchGames]);
 
   const handleRetryLoadGames = useCallback(async () => {
