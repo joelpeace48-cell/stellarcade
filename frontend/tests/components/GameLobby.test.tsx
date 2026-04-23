@@ -293,6 +293,32 @@ describe('GameLobby accessibility landmarks', () => {
     });
   });
 
+  it('offers an inline retry affordance on recoverable errors', async () => {
+    (ApiClient as any).prototype.getGames
+      .mockResolvedValueOnce({
+        success: false,
+        error: { message: 'Network error' },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [],
+      });
+
+    render(<GameLobby />);
+
+    const retryBtn = await screen.findByTestId('lobby-error-retry');
+    expect(retryBtn).toBeInTheDocument();
+
+    const callsBefore = (ApiClient as any).prototype.getGames.mock.calls.length;
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect((ApiClient as any).prototype.getGames.mock.calls.length).toBe(
+        callsBefore + 1,
+      );
+    });
+  });
+
   it('renders dashboard as a section with aria-label', async () => {
     (ApiClient as any).prototype.getGames.mockResolvedValue({
       success: true,

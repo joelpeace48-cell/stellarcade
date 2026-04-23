@@ -122,6 +122,7 @@ export const GameLobby: React.FC = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [networkCheckPending, setNetworkCheckPending] = useState(false);
   const [pendingTransaction, setPendingTransaction] =
     useState<PendingTransactionSnapshot | null>(null);
@@ -198,21 +199,37 @@ export const GameLobby: React.FC = () => {
     ],
   );
 
-  useEffect(() => {
-    const fetchGames = async () => {
-      const client = new ApiClient();
-      const result = await client.getGames();
+  const fetchGames = useCallback(async () => {
+    const client = new ApiClient();
+    const result = await client.getGames();
 
-      if (result.success) {
-        setGames(result.data);
-      } else {
-        setError(result.error.message);
-      }
+    if (result.success) {
+      setGames(result.data);
+      setError(null);
+      return true;
+    }
+
+    setError(result.error.message);
+    return false;
+  }, []);
+
+  useEffect(() => {
+    const run = async () => {
+      await fetchGames();
       setLoading(false);
     };
+    run();
+  }, [fetchGames]);
 
-    fetchGames();
-  }, []);
+  const handleRetryLoadGames = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await fetchGames();
+    } finally {
+      setRetrying(false);
+    }
+  }, [fetchGames, retrying]);
 
   useEffect(() => {
     const store = globalStoreRef.current!;
@@ -324,7 +341,18 @@ export const GameLobby: React.FC = () => {
   if (error)
     return (
       <div className="lobby-error" role="status" aria-live="polite">
-        Failed to load games: {error}
+        <p>Failed to load games: {error}</p>
+        <div style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleRetryLoadGames}
+            disabled={retrying}
+            data-testid="lobby-error-retry"
+          >
+            {retrying ? "Retrying..." : "Retry"}
+          </button>
+        </div>
       </div>
     );
 
